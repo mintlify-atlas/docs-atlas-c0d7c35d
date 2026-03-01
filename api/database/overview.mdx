@@ -1,0 +1,304 @@
+---
+title: 'Database Overview'
+description: 'SQLite-based storage layer for crawl data, snapshots, and metrics'
+icon: 'database'
+---
+
+## Overview
+
+Crawlith uses SQLite for persistent storage of crawl data, site configurations, and computed metrics. The database provides a robust foundation for tracking website snapshots over time, analyzing link structures, and identifying content issues.
+
+## Database Location
+
+By default, Crawlith stores its database at:
+
+```
+~/.crawlith/crawlith.db
+```
+
+You can customize the database location using the `CRAWLITH_DB_PATH` environment variable:
+
+```bash
+export CRAWLITH_DB_PATH=/path/to/custom/crawlith.db
+```
+
+For testing, the database can be configured to use an in-memory instance by setting `NODE_ENV=test`.
+
+## Database Configuration
+
+The database is initialized with the following SQLite pragmas for optimal performance and data integrity:
+
+<ParamField path="journal_mode" type="WAL">
+  Write-Ahead Logging mode for better concurrency and performance
+</ParamField>
+
+<ParamField path="synchronous" type="NORMAL">
+  Balanced durability and performance
+</ParamField>
+
+<ParamField path="foreign_keys" type="ON">
+  Enforces referential integrity between tables
+</ParamField>
+
+<ParamField path="temp_store" type="MEMORY">
+  Stores temporary tables and indices in memory
+</ParamField>
+
+<ParamField path="mmap_size" type="30000000000">
+  Memory-mapped I/O for faster reads (30GB)
+</ParamField>
+
+<ParamField path="cache_size" type="-20000">
+  Page cache size (20MB)
+</ParamField>
+
+<ParamField path="busy_timeout" type="5000">
+  Wait up to 5 seconds when database is locked
+</ParamField>
+
+## Schema Overview
+
+The database consists of seven primary tables:
+
+### Sites Table
+
+Stores website configurations and metadata.
+
+```sql
+CREATE TABLE sites (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  domain TEXT UNIQUE NOT NULL,
+  created_at TEXT DEFAULT (datetime('now')),
+  settings_json TEXT,
+  is_active INTEGER DEFAULT 1
+);
+```
+
+### Snapshots Table
+
+Tracks individual crawl sessions for each site.
+
+```sql
+CREATE TABLE snapshots (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  site_id INTEGER NOT NULL,
+  type TEXT CHECK(type IN ('full', 'partial', 'incremental')) NOT NULL,
+  created_at TEXT DEFAULT (datetime('now')),
+  node_count INTEGER DEFAULT 0,
+  edge_count INTEGER DEFAULT 0,
+  status TEXT CHECK(status IN ('running', 'completed', 'failed')) DEFAULT 'running',
+  limit_reached INTEGER DEFAULT 0,
+  health_score REAL,
+  orphan_count INTEGER,
+  thin_content_count INTEGER,
+  FOREIGN KEY(site_id) REFERENCES sites(id) ON DELETE CASCADE
+);
+```
+
+### Pages Table
+
+Stores discovered pages with metadata, content hashes, and crawl information.
+
+```sql
+CREATE TABLE pages (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  site_id INTEGER NOT NULL,
+  normalized_url TEXT NOT NULL,
+  first_seen_snapshot_id INTEGER,
+  last_seen_snapshot_id INTEGER,
+  http_status INTEGER,
+  canonical_url TEXT,
+  content_hash TEXT,
+  simhash TEXT,
+  etag TEXT,
+  last_modified TEXT,
+  html TEXT,
+  soft404_score REAL,
+  noindex INTEGER DEFAULT 0,
+  nofollow INTEGER DEFAULT 0,
+  security_error TEXT,
+  retries INTEGER DEFAULT 0,
+  depth INTEGER DEFAULT 0,
+  redirect_chain TEXT,
+  bytes_received INTEGER,
+  crawl_trap_flag INTEGER DEFAULT 0,
+  crawl_trap_risk REAL,
+  trap_type TEXT,
+  created_at TEXT DEFAULT (datetime('now')),
+  updated_at TEXT DEFAULT (datetime('now')),
+  FOREIGN KEY(site_id) REFERENCES sites(id) ON DELETE CASCADE,
+  FOREIGN KEY(first_seen_snapshot_id) REFERENCES snapshots(id),
+  FOREIGN KEY(last_seen_snapshot_id) REFERENCES snapshots(id),
+  UNIQUE(site_id, normalized_url)
+);
+```
+
+### Edges Table
+
+Represents links between pages in the crawl graph.
+
+```sql
+CREATE TABLE edges (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  snapshot_id INTEGER NOT NULL,
+  source_page_id INTEGER NOT NULL,
+  target_page_id INTEGER NOT NULL,
+  weight REAL DEFAULT 1.0,
+  rel TEXT CHECK(rel IN ('nofollow', 'sponsored', 'ugc', 'internal', 'external', 'unknown')) DEFAULT 'internal',
+  FOREIGN KEY(snapshot_id) REFERENCES snapshots(id) ON DELETE CASCADE,
+  FOREIGN KEY(source_page_id) REFERENCES pages(id) ON DELETE CASCADE,
+  FOREIGN KEY(target_page_id) REFERENCES pages(id) ON DELETE CASCADE
+);
+```
+
+### Metrics Table
+
+Stores computed metrics for each page in a snapshot (PageRank, authority scores, etc.).
+
+```sql
+CREATE TABLE metrics (
+  snapshot_id INTEGER NOT NULL,
+  page_id INTEGER NOT NULL,
+  authority_score REAL,
+  hub_score REAL,
+  pagerank REAL,
+  pagerank_score REAL,
+  link_role TEXT CHECK(link_role IN ('hub', 'authority', 'power', 'balanced', 'peripheral')),
+  crawl_status TEXT,
+  word_count INTEGER,
+  thin_content_score REAL,
+  external_link_ratio REAL,
+  orphan_score INTEGER,
+  duplicate_cluster_id TEXT,
+  duplicate_type TEXT CHECK(duplicate_type IN ('exact', 'near', 'template_heavy', 'none')),
+  is_cluster_primary INTEGER DEFAULT 0,
+  PRIMARY KEY(snapshot_id, page_id),
+  FOREIGN KEY(snapshot_id) REFERENCES snapshots(id) ON DELETE CASCADE,
+  FOREIGN KEY(page_id) REFERENCES pages(id) ON DELETE CASCADE
+);
+```
+
+### Duplicate Clusters Table
+
+Tracks groups of duplicate or near-duplicate content.
+
+```sql
+CREATE TABLE duplicate_clusters (
+  id TEXT NOT NULL,
+  snapshot_id INTEGER NOT NULL,
+  type TEXT CHECK(type IN ('exact', 'near', 'template_heavy')) NOT NULL,
+  size INTEGER NOT NULL,
+  representative TEXT NOT NULL,
+  severity TEXT CHECK(severity IN ('low', 'medium', 'high')) NOT NULL,
+  PRIMARY KEY(snapshot_id, id),
+  FOREIGN KEY(snapshot_id) REFERENCES snapshots(id) ON DELETE CASCADE
+);
+```
+
+### Content Clusters Table
+
+Groups pages with similar content patterns.
+
+```sql
+CREATE TABLE content_clusters (
+  id INTEGER NOT NULL,
+  snapshot_id INTEGER NOT NULL,
+  count INTEGER NOT NULL,
+  primary_url TEXT NOT NULL,
+  risk TEXT CHECK(risk IN ('low', 'medium', 'high')) NOT NULL,
+  shared_path_prefix TEXT,
+  PRIMARY KEY(snapshot_id, id),
+  FOREIGN KEY(snapshot_id) REFERENCES snapshots(id) ON DELETE CASCADE
+);
+```
+
+## Accessing the Database
+
+Use the `getDb()` function to access the database instance:
+
+```typescript
+import { getDb } from '@crawlith/core/db';
+
+const db = getDb();
+```
+
+<ResponseField name="getDb" type="Database">
+  Returns the singleton database instance, initializing it if necessary
+</ResponseField>
+
+## Database Functions
+
+### getDbPath
+
+Returns the path to the database file.
+
+```typescript
+import { getDbPath } from '@crawlith/core/db';
+
+const path = getDbPath();
+// Returns: ~/.crawlith/crawlith.db (or custom path)
+```
+
+<ResponseField name="getDbPath" type="string">
+  Returns the absolute path to the database file
+</ResponseField>
+
+### closeDb
+
+Closes the database connection.
+
+```typescript
+import { closeDb } from '@crawlith/core/db';
+
+closeDb();
+```
+
+## Security Features
+
+- **File Permissions**: Database directory is created with `0o700` (user-only access)
+- **Database File**: Set to `0o600` (user read/write only)
+- **Integrity Checks**: Automatic integrity check on database initialization
+- **Foreign Keys**: Enabled to maintain referential integrity
+
+## Examples
+
+### Initialize Database
+
+```typescript
+import { getDb, initSchema } from '@crawlith/core/db';
+
+const db = getDb();
+initSchema(db);
+```
+
+### Query Database Directly
+
+```typescript
+import { getDb } from '@crawlith/core/db';
+
+const db = getDb();
+const sites = db.prepare('SELECT * FROM sites WHERE is_active = 1').all();
+console.log(sites);
+```
+
+### Use Repositories
+
+For structured access to database tables, use the repository classes:
+
+```typescript
+import { getDb } from '@crawlith/core/db';
+import { SiteRepository, SnapshotRepository } from '@crawlith/core/db';
+
+const db = getDb();
+const siteRepo = new SiteRepository(db);
+const snapshotRepo = new SnapshotRepository(db);
+
+const site = siteRepo.firstOrCreateSite('example.com');
+const snapshotId = snapshotRepo.createSnapshot(site.id, 'full');
+```
+
+## Related
+
+<Card title="Repositories" icon="box" href="/api/database/repositories">
+  Explore SiteRepository, SnapshotRepository, PageRepository, EdgeRepository, and MetricsRepository
+</Card>

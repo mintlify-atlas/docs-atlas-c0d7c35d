@@ -1,0 +1,894 @@
+---
+title: 'Repository Classes'
+description: 'Data access layer for sites, snapshots, pages, edges, and metrics'
+icon: 'box'
+---
+
+## Overview
+
+Crawlith provides repository classes for structured access to database tables. Each repository encapsulates database queries and provides type-safe methods for common operations.
+
+## SiteRepository
+
+Manages website configurations and metadata.
+
+### Interface
+
+```typescript
+interface Site {
+  id: number;
+  domain: string;
+  created_at: string;
+  settings_json: string | null;
+  is_active: number;
+}
+```
+
+### Constructor
+
+```typescript
+import { getDb } from '@crawlith/core/db';
+import { SiteRepository } from '@crawlith/core/db';
+
+const db = getDb();
+const siteRepo = new SiteRepository(db);
+```
+
+<ParamField path="db" type="Database" required>
+  SQLite database instance from `getDb()`
+</ParamField>
+
+### getSite
+
+Retrieve a site by domain.
+
+```typescript
+const site = siteRepo.getSite('example.com');
+if (site) {
+  console.log(`Site ID: ${site.id}`);
+}
+```
+
+<ParamField path="domain" type="string" required>
+  The domain name to look up
+</ParamField>
+
+<ResponseField name="return" type="Site | undefined">
+  The site record, or `undefined` if not found
+</ResponseField>
+
+### getSiteById
+
+Retrieve a site by its numeric ID.
+
+```typescript
+const site = siteRepo.getSiteById(1);
+```
+
+<ParamField path="id" type="number" required>
+  The site's numeric identifier
+</ParamField>
+
+<ResponseField name="return" type="Site | undefined">
+  The site record, or `undefined` if not found
+</ResponseField>
+
+### getAllSites
+
+Retrieve all sites, ordered by domain.
+
+```typescript
+const allSites = siteRepo.getAllSites();
+allSites.forEach(site => {
+  console.log(site.domain);
+});
+```
+
+<ResponseField name="return" type="Site[]">
+  Array of all site records
+</ResponseField>
+
+### createSite
+
+Create a new site record.
+
+```typescript
+const siteId = siteRepo.createSite('example.com');
+```
+
+<ParamField path="domain" type="string" required>
+  The domain name for the new site
+</ParamField>
+
+<ResponseField name="return" type="number">
+  The auto-incremented ID of the newly created site
+</ResponseField>
+
+### firstOrCreateSite
+
+Get an existing site or create it if it doesn't exist.
+
+```typescript
+const site = siteRepo.firstOrCreateSite('example.com');
+// Always returns a valid Site object
+```
+
+<ParamField path="domain" type="string" required>
+  The domain name to retrieve or create
+</ParamField>
+
+<ResponseField name="return" type="Site">
+  The existing or newly created site record
+</ResponseField>
+
+### deleteSite
+
+Delete a site and all associated data (cascades to snapshots, pages, edges, metrics).
+
+```typescript
+siteRepo.deleteSite(1);
+```
+
+<ParamField path="id" type="number" required>
+  The site ID to delete
+</ParamField>
+
+---
+
+## SnapshotRepository
+
+Manages crawl sessions and snapshot metadata.
+
+### Interface
+
+```typescript
+interface Snapshot {
+  id: number;
+  site_id: number;
+  type: 'full' | 'partial' | 'incremental';
+  created_at: string;
+  node_count: number;
+  edge_count: number;
+  status: 'running' | 'completed' | 'failed';
+  limit_reached: number;
+  health_score: number | null;
+  orphan_count: number | null;
+  thin_content_count: number | null;
+}
+```
+
+### Constructor
+
+```typescript
+import { getDb } from '@crawlith/core/db';
+import { SnapshotRepository } from '@crawlith/core/db';
+
+const db = getDb();
+const snapshotRepo = new SnapshotRepository(db);
+```
+
+<ParamField path="db" type="Database" required>
+  SQLite database instance from `getDb()`
+</ParamField>
+
+### createSnapshot
+
+Create a new crawl snapshot.
+
+```typescript
+const snapshotId = snapshotRepo.createSnapshot(
+  siteId,
+  'full',
+  'running'
+);
+```
+
+<ParamField path="siteId" type="number" required>
+  The site ID this snapshot belongs to
+</ParamField>
+
+<ParamField path="type" type="'full' | 'partial' | 'incremental'" required>
+  The snapshot type
+</ParamField>
+
+<ParamField path="status" type="'running' | 'completed' | 'failed'" default="'running'">
+  Initial status of the snapshot
+</ParamField>
+
+<ResponseField name="return" type="number">
+  The auto-incremented ID of the newly created snapshot
+</ResponseField>
+
+### getLatestSnapshot
+
+Retrieve the most recent snapshot for a site.
+
+```typescript
+const snapshot = snapshotRepo.getLatestSnapshot(
+  siteId,
+  'completed',
+  false
+);
+```
+
+<ParamField path="siteId" type="number" required>
+  The site ID to query
+</ParamField>
+
+<ParamField path="status" type="'running' | 'completed' | 'failed'">
+  Optional status filter
+</ParamField>
+
+<ParamField path="includePartial" type="boolean" default="false">
+  Whether to include partial snapshots in the search
+</ParamField>
+
+<ResponseField name="return" type="Snapshot | undefined">
+  The latest snapshot matching the criteria, or `undefined`
+</ResponseField>
+
+### getSnapshot
+
+Retrieve a snapshot by ID.
+
+```typescript
+const snapshot = snapshotRepo.getSnapshot(123);
+```
+
+<ParamField path="id" type="number" required>
+  The snapshot ID
+</ParamField>
+
+<ResponseField name="return" type="Snapshot | undefined">
+  The snapshot record, or `undefined` if not found
+</ResponseField>
+
+### getSnapshotCount
+
+Get the total number of snapshots for a site.
+
+```typescript
+const count = snapshotRepo.getSnapshotCount(siteId);
+```
+
+<ParamField path="siteId" type="number" required>
+  The site ID to count snapshots for
+</ParamField>
+
+<ResponseField name="return" type="number">
+  Total number of snapshots for the site
+</ResponseField>
+
+### updateSnapshotStatus
+
+Update a snapshot's status and statistics.
+
+```typescript
+snapshotRepo.updateSnapshotStatus(snapshotId, 'completed', {
+  node_count: 150,
+  edge_count: 450,
+  health_score: 0.87,
+  orphan_count: 5,
+  thin_content_count: 12
+});
+```
+
+<ParamField path="id" type="number" required>
+  The snapshot ID to update
+</ParamField>
+
+<ParamField path="status" type="'completed' | 'failed'" required>
+  The new status
+</ParamField>
+
+<ParamField path="stats" type="Partial<Snapshot>" default="{}">
+  Optional statistics to update (node_count, edge_count, limit_reached, health_score, orphan_count, thin_content_count)
+</ParamField>
+
+### deleteSnapshot
+
+Delete a snapshot and clean up orphaned pages.
+
+```typescript
+snapshotRepo.deleteSnapshot(snapshotId);
+```
+
+<ParamField path="id" type="number" required>
+  The snapshot ID to delete
+</ParamField>
+
+<Note>
+  This method runs in a transaction and will:
+  1. Unlink pages from the snapshot
+  2. Delete pages no longer referenced by any snapshot
+  3. Delete the snapshot record
+  4. Cascade delete edges and metrics via foreign key constraints
+</Note>
+
+---
+
+## PageRepository
+
+Manages discovered pages and their metadata.
+
+### Interface
+
+```typescript
+interface Page {
+  id: number;
+  site_id: number;
+  normalized_url: string;
+  first_seen_snapshot_id: number | null;
+  last_seen_snapshot_id: number | null;
+  http_status: number | null;
+  canonical_url: string | null;
+  content_hash: string | null;
+  simhash: string | null;
+  etag: string | null;
+  last_modified: string | null;
+  html: string | null;
+  soft404_score: number | null;
+  noindex: number;
+  nofollow: number;
+  security_error: string | null;
+  retries: number;
+  depth: number;
+  redirect_chain: string | null;
+  bytes_received: number | null;
+  crawl_trap_flag: number;
+  crawl_trap_risk: number | null;
+  trap_type: string | null;
+  created_at: string;
+  updated_at: string;
+}
+```
+
+### Constructor
+
+```typescript
+import { getDb } from '@crawlith/core/db';
+import { PageRepository } from '@crawlith/core/db';
+
+const db = getDb();
+const pageRepo = new PageRepository(db);
+```
+
+<ParamField path="db" type="Database" required>
+  SQLite database instance from `getDb()`
+</ParamField>
+
+### upsertPage
+
+Insert or update a page record.
+
+```typescript
+pageRepo.upsertPage({
+  site_id: 1,
+  normalized_url: 'https://example.com/page',
+  last_seen_snapshot_id: 123,
+  http_status: 200,
+  content_hash: 'abc123',
+  depth: 1
+});
+```
+
+<ParamField path="page" type="Partial<Page>" required>
+  Page data to insert or update. Must include `site_id`, `normalized_url`, and `last_seen_snapshot_id`.
+</ParamField>
+
+<Note>
+  On conflict (duplicate `site_id` + `normalized_url`), the method updates the existing record while preserving non-null values using `COALESCE`.
+</Note>
+
+### upsertAndGetId
+
+Upsert a page and return its ID.
+
+```typescript
+const pageId = pageRepo.upsertAndGetId({
+  site_id: 1,
+  normalized_url: 'https://example.com/page',
+  last_seen_snapshot_id: 123,
+  http_status: 200
+});
+```
+
+<ParamField path="page" type="Partial<Page>" required>
+  Page data to insert or update
+</ParamField>
+
+<ResponseField name="return" type="number">
+  The page ID (existing or newly created)
+</ResponseField>
+
+### upsertMany
+
+Batch upsert multiple pages in a transaction.
+
+```typescript
+const urlToIdMap = pageRepo.upsertMany([
+  { site_id: 1, normalized_url: 'https://example.com/page1', last_seen_snapshot_id: 123 },
+  { site_id: 1, normalized_url: 'https://example.com/page2', last_seen_snapshot_id: 123 }
+]);
+
+const page1Id = urlToIdMap.get('https://example.com/page1');
+```
+
+<ParamField path="pages" type="Array<Partial<Page>>" required>
+  Array of page records to upsert
+</ParamField>
+
+<ResponseField name="return" type="Map<string, number>">
+  Map of normalized URLs to their page IDs
+</ResponseField>
+
+### getPage
+
+Retrieve a page by site ID and URL.
+
+```typescript
+const page = pageRepo.getPage(1, 'https://example.com/page');
+```
+
+<ParamField path="siteId" type="number" required>
+  The site ID
+</ParamField>
+
+<ParamField path="url" type="string" required>
+  The normalized URL
+</ParamField>
+
+<ResponseField name="return" type="Page | undefined">
+  The page record, or `undefined` if not found
+</ResponseField>
+
+### getPagesByUrls
+
+Retrieve multiple pages by their URLs.
+
+```typescript
+const pages = pageRepo.getPagesByUrls(1, [
+  'https://example.com/page1',
+  'https://example.com/page2'
+]);
+```
+
+<ParamField path="siteId" type="number" required>
+  The site ID
+</ParamField>
+
+<ParamField path="urls" type="string[]" required>
+  Array of normalized URLs
+</ParamField>
+
+<ResponseField name="return" type="Page[]">
+  Array of matching page records
+</ResponseField>
+
+<Note>
+  This method handles large URL arrays by chunking them into batches of 900 to avoid SQLite parameter limits.
+</Note>
+
+### getPagesBySnapshot
+
+Retrieve all pages visible in a snapshot.
+
+```typescript
+const pages = pageRepo.getPagesBySnapshot(snapshotId);
+```
+
+<ParamField path="snapshotId" type="number" required>
+  The snapshot ID
+</ParamField>
+
+<ResponseField name="return" type="Page[]">
+  Array of all pages first seen on or before this snapshot
+</ResponseField>
+
+### getPagesIdentityBySnapshot
+
+Retrieve page IDs and URLs for a snapshot (lightweight query).
+
+```typescript
+const pageIdentities = pageRepo.getPagesIdentityBySnapshot(snapshotId);
+// [{ id: 1, normalized_url: 'https://example.com/page' }, ...]
+```
+
+<ParamField path="snapshotId" type="number" required>
+  The snapshot ID
+</ParamField>
+
+<ResponseField name="return" type="Array<{ id: number, normalized_url: string }>">
+  Array of page IDs and URLs
+</ResponseField>
+
+### getPagesIteratorBySnapshot
+
+Get an iterator for pages in a snapshot (memory-efficient).
+
+```typescript
+for (const page of pageRepo.getPagesIteratorBySnapshot(snapshotId)) {
+  console.log(page.normalized_url);
+}
+```
+
+<ParamField path="snapshotId" type="number" required>
+  The snapshot ID
+</ParamField>
+
+<ResponseField name="return" type="IterableIterator<Page>">
+  Iterator for pages in the snapshot
+</ResponseField>
+
+### getIdByUrl
+
+Get a page ID by site and URL.
+
+```typescript
+const pageId = pageRepo.getIdByUrl(1, 'https://example.com/page');
+```
+
+<ParamField path="siteId" type="number" required>
+  The site ID
+</ParamField>
+
+<ParamField path="url" type="string" required>
+  The normalized URL
+</ParamField>
+
+<ResponseField name="return" type="number | undefined">
+  The page ID, or `undefined` if not found
+</ResponseField>
+
+---
+
+## EdgeRepository
+
+Manages links between pages in the crawl graph.
+
+### Interface
+
+```typescript
+interface Edge {
+  id: number;
+  snapshot_id: number;
+  source_page_id: number;
+  target_page_id: number;
+  weight: number;
+  rel: 'nofollow' | 'sponsored' | 'ugc' | 'internal' | 'external' | 'unknown';
+}
+```
+
+### Constructor
+
+```typescript
+import { getDb } from '@crawlith/core/db';
+import { EdgeRepository } from '@crawlith/core/db';
+
+const db = getDb();
+const edgeRepo = new EdgeRepository(db);
+```
+
+<ParamField path="db" type="Database" required>
+  SQLite database instance from `getDb()`
+</ParamField>
+
+### insertEdge
+
+Insert a single edge between two pages.
+
+```typescript
+edgeRepo.insertEdge(
+  snapshotId,
+  sourcePageId,
+  targetPageId,
+  1.0,
+  'internal'
+);
+```
+
+<ParamField path="snapshotId" type="number" required>
+  The snapshot this edge belongs to
+</ParamField>
+
+<ParamField path="sourcePageId" type="number" required>
+  The page ID where the link originates
+</ParamField>
+
+<ParamField path="targetPageId" type="number" required>
+  The page ID the link points to
+</ParamField>
+
+<ParamField path="weight" type="number" default="1.0">
+  Link weight (used in PageRank calculations)
+</ParamField>
+
+<ParamField path="rel" type="string" default="'internal'">
+  Link relationship: 'nofollow', 'sponsored', 'ugc', 'internal', 'external', 'unknown'
+</ParamField>
+
+### insertEdges
+
+Batch insert multiple edges in a transaction.
+
+```typescript
+edgeRepo.insertEdges([
+  { snapshot_id: 123, source_page_id: 1, target_page_id: 2, weight: 1.0, rel: 'internal' },
+  { snapshot_id: 123, source_page_id: 1, target_page_id: 3, weight: 1.0, rel: 'internal' }
+]);
+```
+
+<ParamField path="edges" type="Array<Edge>" required>
+  Array of edge records to insert
+</ParamField>
+
+### getEdgesBySnapshot
+
+Retrieve all edges for a snapshot.
+
+```typescript
+const edges = edgeRepo.getEdgesBySnapshot(snapshotId);
+```
+
+<ParamField path="snapshotId" type="number" required>
+  The snapshot ID
+</ParamField>
+
+<ResponseField name="return" type="Edge[]">
+  Array of all edges in the snapshot
+</ResponseField>
+
+### getEdgesIteratorBySnapshot
+
+Get an iterator for edges in a snapshot (memory-efficient).
+
+```typescript
+for (const edge of edgeRepo.getEdgesIteratorBySnapshot(snapshotId)) {
+  console.log(`${edge.source_page_id} -> ${edge.target_page_id}`);
+}
+```
+
+<ParamField path="snapshotId" type="number" required>
+  The snapshot ID
+</ParamField>
+
+<ResponseField name="return" type="IterableIterator<Edge>">
+  Iterator for edges in the snapshot
+</ResponseField>
+
+---
+
+## MetricsRepository
+
+Manages computed metrics for pages (PageRank, authority scores, duplicate detection).
+
+### Interface
+
+```typescript
+interface DbMetrics {
+  snapshot_id: number;
+  page_id: number;
+  authority_score: number | null;
+  hub_score: number | null;
+  pagerank: number | null;
+  pagerank_score: number | null;
+  link_role: 'hub' | 'authority' | 'power' | 'balanced' | 'peripheral' | null;
+  crawl_status: string | null;
+  word_count: number | null;
+  thin_content_score: number | null;
+  external_link_ratio: number | null;
+  orphan_score: number | null;
+  duplicate_cluster_id: string | null;
+  duplicate_type: 'exact' | 'near' | 'template_heavy' | 'none' | null;
+  is_cluster_primary: number;
+}
+```
+
+### Constructor
+
+```typescript
+import { getDb } from '@crawlith/core/db';
+import { MetricsRepository } from '@crawlith/core/db';
+
+const db = getDb();
+const metricsRepo = new MetricsRepository(db);
+```
+
+<ParamField path="db" type="Database" required>
+  SQLite database instance from `getDb()`
+</ParamField>
+
+### insertMetrics
+
+Insert or replace metrics for a page.
+
+```typescript
+metricsRepo.insertMetrics({
+  snapshot_id: 123,
+  page_id: 1,
+  pagerank: 0.85,
+  authority_score: 0.92,
+  hub_score: 0.45,
+  link_role: 'authority',
+  crawl_status: 'fetched',
+  word_count: 1200,
+  orphan_score: 0,
+  duplicate_type: 'none',
+  is_cluster_primary: 0
+});
+```
+
+<ParamField path="metrics" type="DbMetrics" required>
+  Metrics record to insert or replace
+</ParamField>
+
+### insertMany
+
+Batch insert metrics in a transaction.
+
+```typescript
+metricsRepo.insertMany([
+  { snapshot_id: 123, page_id: 1, pagerank: 0.85, ... },
+  { snapshot_id: 123, page_id: 2, pagerank: 0.72, ... }
+]);
+```
+
+<ParamField path="metricsList" type="DbMetrics[]" required>
+  Array of metrics records to insert
+</ParamField>
+
+### getMetrics
+
+Retrieve all metrics for a snapshot.
+
+```typescript
+const metrics = metricsRepo.getMetrics(snapshotId);
+```
+
+<ParamField path="snapshotId" type="number" required>
+  The snapshot ID
+</ParamField>
+
+<ResponseField name="return" type="DbMetrics[]">
+  Array of all metrics in the snapshot
+</ResponseField>
+
+### getMetricsIterator
+
+Get an iterator for metrics in a snapshot (memory-efficient).
+
+```typescript
+for (const metric of metricsRepo.getMetricsIterator(snapshotId)) {
+  console.log(`Page ${metric.page_id}: PageRank ${metric.pagerank}`);
+}
+```
+
+<ParamField path="snapshotId" type="number" required>
+  The snapshot ID
+</ParamField>
+
+<ResponseField name="return" type="IterableIterator<DbMetrics>">
+  Iterator for metrics in the snapshot
+</ResponseField>
+
+### getMetricsForPage
+
+Retrieve metrics for a specific page in a snapshot.
+
+```typescript
+const metrics = metricsRepo.getMetricsForPage(snapshotId, pageId);
+if (metrics) {
+  console.log(`PageRank: ${metrics.pagerank}`);
+}
+```
+
+<ParamField path="snapshotId" type="number" required>
+  The snapshot ID
+</ParamField>
+
+<ParamField path="pageId" type="number" required>
+  The page ID
+</ParamField>
+
+<ResponseField name="return" type="DbMetrics | undefined">
+  Metrics for the page, or `undefined` if not found
+</ResponseField>
+
+---
+
+## Example: Complete Workflow
+
+```typescript
+import { getDb } from '@crawlith/core/db';
+import {
+  SiteRepository,
+  SnapshotRepository,
+  PageRepository,
+  EdgeRepository,
+  MetricsRepository
+} from '@crawlith/core/db';
+
+const db = getDb();
+
+// Initialize repositories
+const siteRepo = new SiteRepository(db);
+const snapshotRepo = new SnapshotRepository(db);
+const pageRepo = new PageRepository(db);
+const edgeRepo = new EdgeRepository(db);
+const metricsRepo = new MetricsRepository(db);
+
+// Create or get site
+const site = siteRepo.firstOrCreateSite('example.com');
+
+// Create snapshot
+const snapshotId = snapshotRepo.createSnapshot(site.id, 'full');
+
+// Upsert pages
+const urlToId = pageRepo.upsertMany([
+  {
+    site_id: site.id,
+    normalized_url: 'https://example.com/',
+    last_seen_snapshot_id: snapshotId,
+    http_status: 200,
+    depth: 0
+  },
+  {
+    site_id: site.id,
+    normalized_url: 'https://example.com/about',
+    last_seen_snapshot_id: snapshotId,
+    http_status: 200,
+    depth: 1
+  }
+]);
+
+// Insert edges
+const homeId = urlToId.get('https://example.com/')!;
+const aboutId = urlToId.get('https://example.com/about')!;
+
+edgeRepo.insertEdges([
+  {
+    snapshot_id: snapshotId,
+    source_page_id: homeId,
+    target_page_id: aboutId,
+    weight: 1.0,
+    rel: 'internal'
+  }
+]);
+
+// Insert metrics
+metricsRepo.insertMany([
+  {
+    snapshot_id: snapshotId,
+    page_id: homeId,
+    pagerank: 0.85,
+    authority_score: 0.92,
+    hub_score: 0.45,
+    link_role: 'authority',
+    crawl_status: 'fetched',
+    word_count: 1200,
+    orphan_score: 0,
+    duplicate_type: 'none',
+    is_cluster_primary: 0
+  }
+]);
+
+// Update snapshot status
+snapshotRepo.updateSnapshotStatus(snapshotId, 'completed', {
+  node_count: 2,
+  edge_count: 1,
+  health_score: 0.95
+});
+
+// Query results
+const pages = pageRepo.getPagesBySnapshot(snapshotId);
+const edges = edgeRepo.getEdgesBySnapshot(snapshotId);
+const metrics = metricsRepo.getMetrics(snapshotId);
+
+console.log(`Crawled ${pages.length} pages with ${edges.length} links`);
+```
+
+## Related
+
+<Card title="Database Overview" icon="database" href="/api/database/overview">
+  Learn about the SQLite schema, database location, and configuration
+</Card>

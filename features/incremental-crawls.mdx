@@ -1,0 +1,262 @@
+---
+title: 'Incremental Crawls'
+description: 'Efficient re-crawling using ETag, Last-Modified headers, and snapshot diffing'
+---
+
+## Overview
+
+Incremental crawls allow you to efficiently re-crawl a site by only fetching pages that have changed since the last crawl. Crawlith uses HTTP conditional requests (ETag and Last-Modified headers) to detect changes and can compare snapshots to identify what's new, removed, or modified.
+
+## How It Works
+
+### Conditional GET Requests
+
+When crawling a page that was previously fetched, Crawlith sends conditional GET requests:
+
+```typescript
+// From fetcher.ts:115-123
+const headers: Record<string, string> = {
+  'User-Agent': this.userAgent
+};
+
+// Conditional GET only for the FIRST request in a chain
+if (redirectChain.length === 0) {
+  if (options.etag) headers['If-None-Match'] = options.etag;
+  if (options.lastModified) headers['If-Modified-Since'] = options.lastModified;
+}
+```
+
+The server responds with:
+- **304 Not Modified** if the content hasn't changed → Crawlith uses cached data
+- **200 OK** with new content if the page changed → Crawlith fetches and processes it
+
+### Handling Cached Responses
+
+When a 304 response is received, Crawlith reuses previous data without re-parsing:
+
+```typescript
+// From crawler.ts:383-414
+private handleCachedResponse(url: string, finalUrl: string, depth: number, prevNode: GraphNode): void {
+  this.bufferPage(finalUrl, depth, 200, {
+    html: prevNode.html,
+    canonical_url: prevNode.canonical,
+    content_hash: prevNode.contentHash,
+    simhash: prevNode.simhash,
+    etag: prevNode.etag,
+    last_modified: prevNode.lastModified,
+    noindex: prevNode.noindex ? 1 : 0,
+    nofollow: prevNode.nofollow ? 1 : 0
+  });
+  this.bufferMetrics(finalUrl, {
+    crawl_status: 'cached'
+  });
+
+  // Re-discovery links from previous graph to continue crawling if needed
+  const prevLinks = this.options.previousGraph?.getEdges()
+    .filter(e => e.source === url)
+    .map(e => e.target);
+
+  if (prevLinks) {
+    for (const link of prevLinks) {
+      const normalizedLink = normalizeUrl(link, '', this.options);
+      if (normalizedLink && normalizedLink !== finalUrl) {
+        this.bufferPage(normalizedLink, depth + 1, 0);
+        this.bufferEdge(finalUrl, normalizedLink, 1.0, 'internal');
+        if (this.shouldEnqueue(normalizedLink, depth + 1)) {
+          this.addToQueue(normalizedLink, depth + 1);
+        }
+      }
+    }
+  }
+}
+```
+
+**Benefits**:
+- Reduces server load (no full HTML transfer for unchanged pages)
+- Faster crawls (skip HTML parsing and link extraction)
+- Lower bandwidth usage
+
+### Snapshot Comparison
+
+After an incremental crawl, you can compare snapshots to see what changed:
+
+```typescript
+// From compare.ts:17-84
+export function compareGraphs(oldGraph: Graph, newGraph: Graph): DiffResult {
+  const oldNodes = new Map(oldGraph.getNodes().map(n => [n.url, n]));
+  const newNodes = new Map(newGraph.getNodes().map(n => [n.url, n]));
+
+  const addedUrls: string[] = [];
+  const removedUrls: string[] = [];
+  const changedStatus: { url: string; oldStatus: number; newStatus: number }[] = [];
+  const changedCanonical: { url: string; oldCanonical: string | null; newCanonical: string | null }[] = [];
+  // ...
+}
+```
+
+The comparison detects:
+- **Added URLs**: Pages that didn't exist in the previous snapshot
+- **Removed URLs**: Pages that are no longer found
+- **Status changes**: Pages with different HTTP status codes
+- **Canonical changes**: Modifications to canonical URL declarations
+- **Duplicate group changes**: Pages moving between duplicate clusters
+- **Metric deltas**: Changes in structural entropy, orphan count, and crawl efficiency
+
+## CLI Usage
+
+### Run an Incremental Crawl
+
+```bash
+# First crawl (baseline)
+crawlith crawl https://example.com --export json
+
+# Subsequent incremental crawl
+crawlith crawl https://example.com --incremental
+```
+
+When `--incremental` is used, Crawlith:
+1. Loads the most recent snapshot from the database
+2. Sends conditional GET requests using stored ETags and Last-Modified dates
+3. Reuses cached content for unchanged pages (304 responses)
+4. Only fully fetches and parses pages that have changed
+
+### Compare Two Snapshots
+
+```bash
+# Export two snapshots to JSON
+crawlith export https://example.com --export json
+# (run another crawl)
+crawlith export https://example.com --export json
+
+# Compare the exported files
+crawlith crawl --compare old-snapshot.json new-snapshot.json
+```
+
+Example output:
+```
+🔍 Comparing Graphs
+Old: ./crawlith-reports/example.com/graph-2024-01-15.json
+New: ./crawlith-reports/example.com/graph-2024-01-20.json
+
+📈 Comparison Results:
+- Added URLs:   5
+- Removed URLs: 2
+- Status Changes: 3
+
+📉 Metric Deltas:
+  structuralEntropy    : +0.045
+  orphanCount          : -1
+  crawlEfficiency      : +0.023
+```
+
+## When to Use Incremental Crawls
+
+<CardGroup cols={2}>
+  <Card title="Frequent Monitoring" icon="clock">
+    Monitor site changes daily or weekly by only fetching what's new
+  </Card>
+  <Card title="Large Sites" icon="sitemap">
+    Reduce crawl time on sites with thousands of pages that rarely change
+  </Card>
+  <Card title="Content Audits" icon="file-check">
+    Track which pages are being updated and how often
+  </Card>
+  <Card title="CI/CD Integration" icon="code-branch">
+    Detect unintended changes in staging or production deployments
+  </Card>
+</CardGroup>
+
+## Understanding the Results
+
+### Cached vs. Fetched Status
+
+After an incremental crawl, check the crawl status metrics:
+
+```typescript
+// Pages are marked with crawl_status
+this.bufferMetrics(finalUrl, {
+  crawl_status: 'cached'  // or 'fetched'
+});
+```
+
+- **cached**: Page returned 304 Not Modified, used previous data
+- **fetched**: Page returned new content (200 OK)
+
+### Metric Deltas
+
+The comparison provides quantitative metrics:
+
+```typescript
+// From compare.ts:70-74
+const metricDeltas = {
+  structuralEntropy: newMetrics.structuralEntropy - oldMetrics.structuralEntropy,
+  orphanCount: newMetrics.orphanPages.length - oldMetrics.orphanPages.length,
+  crawlEfficiency: newMetrics.crawlEfficiencyScore - oldMetrics.crawlEfficiencyScore
+};
+```
+
+- **structuralEntropy**: Increase suggests more diverse link patterns (may indicate new content silos)
+- **orphanCount**: Positive delta means more unreachable pages
+- **crawlEfficiency**: Decrease means pages are buried deeper in the site
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Set appropriate crawl frequency">
+    Don't crawl more often than content updates. Most sites benefit from daily or weekly incremental crawls.
+  </Accordion>
+  
+  <Accordion title="Keep baseline snapshots">
+    Export and archive baseline snapshots before major site changes (redesigns, migrations) for comparison.
+  </Accordion>
+  
+  <Accordion title="Monitor removed URLs">
+    Large numbers of removed URLs may indicate broken internal links or content archival issues.
+  </Accordion>
+  
+  <Accordion title="Validate status changes">
+    Unexpected status changes (200 → 404 or 200 → 301) often reveal broken links or missing redirects.
+  </Accordion>
+</AccordionGroup>
+
+## Technical Details
+
+### Snapshot Types
+
+Crawlith supports three snapshot types:
+
+```typescript
+// From crawler.ts:134
+const type = this.options.snapshotType || (this.options.previousGraph ? 'incremental' : 'full');
+this.snapshotId = this.snapshotRepo.createSnapshot(this.siteId, type);
+```
+
+- **full**: Complete crawl with no previous reference
+- **incremental**: Uses previous snapshot for conditional requests
+- **partial**: Custom crawl subset (advanced use)
+
+### Database Storage
+
+ETags and Last-Modified dates are persisted in the database:
+
+```typescript
+// From crawler.ts:388-390
+etag: prevNode.etag,
+last_modified: prevNode.lastModified,
+```
+
+This allows incremental crawls to work across sessions without maintaining in-memory state.
+
+## See Also
+
+<CardGroup cols={2}>
+  <Card title="Web Crawling" icon="spider" href="/features/crawling">
+    Learn about the core crawling algorithm and options
+  </Card>
+  <Card title="Graph Analysis" icon="chart-network" href="/features/graph-analysis">
+    Analyze snapshot data to identify structural changes
+  </Card>
+  <Card title="Export Data" icon="file-export" href="/features/exports">
+    Export snapshots for long-term archival and comparison
+  </Card>
+</CardGroup>

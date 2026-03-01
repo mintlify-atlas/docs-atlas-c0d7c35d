@@ -1,0 +1,289 @@
+---
+title: Rate Limiting
+description: Rate limiter implementation, crawl-delay, and token bucket algorithm
+---
+
+## Overview
+
+Crawlith implements a **token bucket rate limiter** to ensure respectful crawling and compliance with server rate limits. Rate limiting is applied **per-hostname** to prevent overwhelming target servers.
+
+## Token Bucket Algorithm
+
+The rate limiter uses a token bucket algorithm that:
+
+1. Each hostname gets its own bucket with a configurable token refill rate
+2. Tokens are consumed for each request
+3. If no tokens are available, the request waits until tokens refill
+4. Tokens refill continuously at the configured rate
+
+### Implementation
+
+From `rateLimiter.ts:1`:
+
+```typescript
+export class RateLimiter {
+    private buckets: Map<string, { tokens: number; lastRefill: number }>
+    private rate: number // tokens per second
+
+    async waitForToken(host: string, crawlDelay: number = 0): Promise<void> {
+        const effectiveRate = crawlDelay > 0 
+            ? Math.min(this.rate, 1 / crawlDelay) 
+            : this.rate
+        const interval = 1000 / effectiveRate
+        // Token bucket logic...
+    }
+}
+```
+
+## Configuration
+
+### Request Rate
+
+```bash
+crawlith crawl https://example.com --rate 2
+```
+
+- **Default**: `2` requests per second per host
+- **Range**: Typically 0.5 - 10 requests/second
+- **Per-host**: Each hostname has independent rate limiting
+
+### Examples
+
+```bash
+# Conservative crawling (1 request every 2 seconds)
+crawlith crawl https://example.com --rate 0.5
+
+# Default rate (2 requests per second)
+crawlith crawl https://example.com --rate 2
+
+# Aggressive crawling (5 requests per second)
+crawlith crawl https://example.com --rate 5
+
+# Maximum speed (10 requests per second)
+crawlith crawl https://example.com --rate 10
+```
+
+## Robots.txt Crawl-Delay
+
+Crawlith automatically respects `Crawl-delay` directives from `robots.txt`. The effective rate is the **minimum** of your configured rate and the robots.txt crawl-delay.
+
+### Crawl-Delay Priority
+
+From `fetcher.ts:107` and `crawler.ts:361`:
+
+```typescript
+await this.rateLimiter.waitForToken(urlObj.hostname, options.crawlDelay)
+
+// Crawl-delay from robots.txt
+crawlDelay: this.robots ? this.robots.getCrawlDelay('crawlith') : undefined
+```
+
+**Example `robots.txt`:**
+
+```
+User-agent: crawlith
+Crawl-delay: 5
+```
+
+If you configure `--rate 10` (0.1s interval) but robots.txt specifies `Crawl-delay: 5`, Crawlith will use **5 seconds** between requests.
+
+### Formula
+
+```
+effectiveRate = crawlDelay > 0 
+    ? min(configuredRate, 1 / crawlDelay) 
+    : configuredRate
+```
+
+## Per-Hostname Isolation
+
+Each hostname maintains its own token bucket, allowing parallel crawling across different hosts:
+
+```bash
+crawlith crawl https://example.com \
+  --include-subdomains \
+  --rate 2 \
+  --concurrency 10
+```
+
+**Result:**
+- `example.com`: 2 req/s
+- `www.example.com`: 2 req/s (separate bucket)
+- `cdn.example.com`: 2 req/s (separate bucket)
+
+Total throughput: Up to **6 req/s** across 3 hosts, each respecting individual 2 req/s limits.
+
+## Token Refill Mechanism
+
+From `rateLimiter.ts:20`:
+
+```typescript
+while (true) {
+    const now = Date.now()
+    const elapsed = now - bucket.lastRefill
+
+    if (elapsed > 0) {
+        const newTokens = elapsed / interval
+        bucket.tokens = Math.min(this.rate, bucket.tokens + newTokens)
+        bucket.lastRefill = now
+    }
+
+    if (bucket.tokens >= 1) {
+        bucket.tokens -= 1
+        return
+    }
+
+    const waitTime = Math.max(0, interval - (Date.now() - bucket.lastRefill))
+    await new Promise(resolve => setTimeout(resolve, waitTime))
+}
+```
+
+**Key behaviors:**
+1. Tokens refill continuously based on elapsed time
+2. Maximum tokens capped at configured rate
+3. Requests block until a token is available
+4. Sub-second precision for accurate rate control
+
+## Rate Limiting + Concurrency
+
+Rate limiting and concurrency work together:
+
+```bash
+crawlith crawl https://example.com \
+  --rate 5 \
+  --concurrency 10
+```
+
+- **Concurrency**: Maximum 10 simultaneous HTTP requests
+- **Rate**: Each hostname limited to 5 req/s
+
+**Behavior:**
+- If crawling a single host: Effective throughput is **5 req/s** (rate limit)
+- If crawling 3 hosts: Effective throughput is **15 req/s** (5×3), limited by concurrency cap
+
+<Note>
+Concurrency controls parallelism; rate limiting controls request frequency per host. Use both together for optimal crawling.
+</Note>
+
+## Practical Examples
+
+### Conservative Crawling (Public Sites)
+
+```bash
+crawlith crawl https://example.com \
+  --rate 1 \
+  --concurrency 2 \
+  --limit 500
+```
+
+**Use case**: Respectful crawling of third-party sites
+
+### Balanced Crawling (Default)
+
+```bash
+crawlith crawl https://example.com \
+  --rate 2 \
+  --concurrency 2
+```
+
+**Use case**: General-purpose site audits
+
+### Fast Crawling (Your Own Infrastructure)
+
+```bash
+crawlith crawl https://example.com \
+  --rate 10 \
+  --concurrency 10 \
+  --max-bytes 5000000
+```
+
+**Use case**: Staging environments or internal networks
+
+### Micro-Crawling (High-Security Targets)
+
+```bash
+crawlith crawl https://example.com \
+  --rate 0.2 \
+  --concurrency 1 \
+  --limit 100
+```
+
+**Use case**: Rate-sensitive APIs or sites with strict WAF rules
+
+## Monitoring Rate Limits
+
+Enable verbose logging to observe rate limiting behavior:
+
+```bash
+crawlith crawl https://example.com \
+  --rate 2 \
+  --log-level verbose
+```
+
+Look for timing patterns in crawl events:
+
+```
+✓ 200 https://example.com/page1 [427ms]
+✓ 200 https://example.com/page2 [502ms] ← ~500ms interval (2 req/s)
+✓ 200 https://example.com/page3 [495ms]
+```
+
+## Best Practices
+
+<Accordion title="What rate should I use?">
+  - **Unknown sites**: Start with `--rate 1` or `--rate 0.5`
+  - **Standard audits**: Use default `--rate 2`
+  - **Your infrastructure**: `--rate 5` to `--rate 10` is safe
+  - **Large sites**: Lower rate with higher `--limit` for respectful long-running crawls
+</Accordion>
+
+<Accordion title="How does rate limiting interact with retries?">
+  Retries (see `retryPolicy.ts:1`) are subject to the same rate limit. If a request fails with 429 (Too Many Requests) or 5xx errors, the retry will still wait for an available token.
+  
+  The retry backoff (exponential with jitter) adds **additional** delay on top of rate limiting.
+</Accordion>
+
+<Accordion title="Can I disable rate limiting?">
+  No. Rate limiting is always active to ensure safe operation. The maximum rate is `--rate 10` (100ms intervals).
+  
+  If you need faster crawling, increase `--concurrency` to crawl multiple pages in parallel.
+</Accordion>
+
+<Accordion title="Why is my crawl slower than the configured rate?">
+  Several factors can reduce effective throughput:
+  - **Network latency**: Slow servers add RTT to each request
+  - **Robots.txt crawl-delay**: Overrides your configured rate if higher
+  - **Response time**: Large pages take longer to download
+  - **Retry backoff**: Failed requests add exponential delays
+  - **Concurrency limit**: Low `--concurrency` limits parallelism
+</Accordion>
+
+## Error Handling
+
+Rate limiting interacts with HTTP errors:
+
+- **429 Too Many Requests**: Triggers retry with exponential backoff (see `retryPolicy.ts:40`)
+- **5xx Server Errors**: Triggers retry, still respecting rate limit
+- **Network Errors**: Triggers retry with rate limiting applied
+
+From `retryPolicy.ts:40`:
+
+```typescript
+static isRetryableStatus(status: number): boolean {
+    return status === 429 || (status >= 500 && status <= 599)
+}
+```
+
+## Related Topics
+
+- [Configuration](/guides/configuration) - Crawling options and settings
+- [Troubleshooting](/guides/troubleshooting) - Debugging slow crawls
+- [Security](/guides/security) - SSRF protection and safety features
+
+## Technical Details
+
+### Source Files
+
+- `plugins/core/src/core/network/rateLimiter.ts` - Token bucket implementation
+- `plugins/core/src/crawler/fetcher.ts` - Rate limiter integration
+- `plugins/core/src/crawler/crawler.ts` - Robots.txt crawl-delay handling

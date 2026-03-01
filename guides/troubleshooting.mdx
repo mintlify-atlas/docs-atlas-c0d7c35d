@@ -1,0 +1,627 @@
+---
+title: Troubleshooting
+description: Common issues, debugging with --debug flag, and lock file management
+---
+
+## Overview
+
+This guide covers common issues when using Crawlith, debugging techniques, and solutions to frequently encountered problems.
+
+## Debug Mode
+
+Enable detailed logging for troubleshooting:
+
+```bash
+crawlith crawl https://example.com --log-level debug
+```
+
+Debug output includes:
+- Individual URL fetch status
+- Robots.txt blocking decisions
+- Security policy evaluations
+- Rate limiting behavior
+- Error stack traces
+
+### Verbose Mode
+
+For less detailed output:
+
+```bash
+crawlith crawl https://example.com --log-level verbose
+```
+
+Verbose mode shows:
+- Session statistics (fetched, cached, skipped pages)
+- Timing information
+- Queue status
+
+## Common Issues
+
+### No Pages Crawled
+
+**Symptom:**
+```
+✅ Crawl complete.
+❌ No pages were crawled.
+```
+
+**Causes:**
+
+1. **Robots.txt blocking**
+   
+   Check if your crawler is blocked:
+   ```bash
+   curl https://example.com/robots.txt
+   ```
+   
+   Look for:
+   ```
+   User-agent: crawlith
+   Disallow: /
+   ```
+   
+   **Solution:**
+   ```bash
+   crawlith crawl https://example.com --ignore-robots
+   ```
+   
+   <Warning>
+   Only use `--ignore-robots` on sites you own or have permission to crawl.
+   </Warning>
+
+2. **SSRF Protection triggered**
+   
+   If crawling `localhost`, `127.0.0.1`, or internal IPs:
+   ```
+   status: 'blocked_internal_ip'
+   ```
+   
+   **Solution:** SSRF protection cannot be disabled. Deploy Crawlith on the same network or use public URLs.
+
+3. **Domain filter blocking**
+   
+   Start URL doesn't match `--allow` whitelist:
+   ```bash
+   # Wrong
+   crawlith crawl https://www.example.com --allow example.com
+   ```
+   
+   **Solution:**
+   ```bash
+   crawlith crawl https://www.example.com --allow www.example.com,example.com
+   ```
+
+4. **Network errors**
+   
+   Enable debug mode to see connection errors:
+   ```bash
+   crawlith crawl https://example.com --log-level debug
+   ```
+
+### Lock File Errors
+
+**Symptom:**
+```
+Crawlith: command already running for https://example.com (PID 12345)
+```
+
+**Cause:** Previous crawl didn't complete cleanly, leaving a lock file.
+
+**Solution 1: Wait for completion**
+
+Check if the process is still running:
+```bash
+ps aux | grep crawlith
+```
+
+If running, let it complete or kill it:
+```bash
+kill 12345
+```
+
+**Solution 2: Force override**
+
+From `lockManager.ts:50`:
+```bash
+crawlith crawl https://example.com --force
+```
+
+This overrides the existing lock.
+
+<Warning>
+Only use `--force` if you're certain no other crawl is running.
+</Warning>
+
+**Solution 3: Manual cleanup**
+
+Lock files are stored at:
+```bash
+~/.crawlith/locks/
+```
+
+List lock files:
+```bash
+ls -lah ~/.crawlith/locks/
+```
+
+Remove stale locks:
+```bash
+rm ~/.crawlith/locks/*.lock
+```
+
+### Understanding Lock Files
+
+From `lockManager.ts:1`, lock files contain:
+
+```json
+{
+  "pid": 12345,
+  "startedAt": 1709251200000,
+  "command": "crawl",
+  "target": "https://example.com",
+  "args": { "limit": 500, "depth": 5 }
+}
+```
+
+Locks are:
+- Unique per command + target URL + options (hashed)
+- Automatically released on exit
+- Cleaned up by signal handlers (SIGINT, SIGTERM)
+- Validated by PID liveness checks
+
+### Slow Crawling
+
+**Symptom:** Crawl takes much longer than expected.
+
+**Causes:**
+
+1. **Rate limiting too conservative**
+   
+   Default: 2 req/s
+   
+   **Solution:**
+   ```bash
+   crawlith crawl https://example.com --rate 5 --concurrency 5
+   ```
+
+2. **robots.txt crawl-delay**
+   
+   Check robots.txt:
+   ```
+   User-agent: crawlith
+   Crawl-delay: 10
+   ```
+   
+   This overrides your `--rate` setting.
+   
+   **Solution:**
+   ```bash
+   # Override robots.txt (use responsibly)
+   crawlith crawl https://example.com --ignore-robots --rate 5
+   ```
+
+3. **Low concurrency**
+   
+   Default: 2 concurrent requests
+   
+   **Solution:**
+   ```bash
+   crawlith crawl https://example.com --concurrency 10
+   ```
+
+4. **Network latency**
+   
+   High RTT to target server adds delay.
+   
+   **Diagnosis:**
+   ```bash
+   ping example.com
+   curl -w "@curl-format.txt" -o /dev/null -s https://example.com
+   ```
+   
+   **Solution:** Increase concurrency to compensate:
+   ```bash
+   crawlith crawl https://example.com --concurrency 10 --rate 5
+   ```
+
+5. **Retries from failed requests**
+   
+   From `retryPolicy.ts:1`, failed requests retry up to 3 times with exponential backoff.
+   
+   **Diagnosis:**
+   ```bash
+   crawlith crawl https://example.com --log-level verbose
+   ```
+   
+   Look for `retries: 3` in output.
+   
+   **Solution:** Address server errors or skip problematic URLs.
+
+### Memory Issues
+
+**Symptom:**
+```
+JavaScript heap out of memory
+```
+
+**Causes:**
+
+1. **Crawling too many pages**
+   
+   Large crawls (10,000+ pages) consume significant memory.
+   
+   **Solution:**
+   ```bash
+   # Increase Node.js heap size
+   NODE_OPTIONS="--max-old-space-size=4096" crawlith crawl https://example.com --limit 10000
+   ```
+
+2. **Large HTML pages**
+   
+   Pages exceeding `--max-bytes` limit.
+   
+   **Solution:**
+   ```bash
+   crawlith crawl https://example.com --max-bytes 1000000
+   ```
+
+3. **Memory leaks in long-running crawls**
+   
+   **Solution:** Break into smaller segments:
+   ```bash
+   crawlith crawl https://example.com --limit 1000 --depth 5
+   crawlith crawl https://example.com --limit 1000 --depth 10
+   ```
+
+### Export Errors
+
+**Symptom:**
+```
+Error: Cannot write export files
+```
+
+**Causes:**
+
+1. **Permission denied**
+   
+   Check output directory permissions:
+   ```bash
+   ls -ld ./crawlith-reports
+   ```
+   
+   **Solution:**
+   ```bash
+   mkdir -p ./crawlith-reports
+   chmod 755 ./crawlith-reports
+   ```
+
+2. **Invalid export format**
+   
+   **Solution:**
+   ```bash
+   crawlith crawl https://example.com --export json,html,csv,markdown,visualize
+   ```
+
+3. **Disk space full**
+   
+   **Diagnosis:**
+   ```bash
+   df -h
+   ```
+   
+   **Solution:** Free disk space or use a different output directory:
+   ```bash
+   crawlith crawl https://example.com --output /path/with/space
+   ```
+
+### Database Errors
+
+**Symptom:**
+```
+Error: database locked
+Error: SQLITE_CORRUPT
+```
+
+**Location:**
+```bash
+~/.crawlith/crawlith.db
+```
+
+**Solution 1: Close other Crawlith instances**
+
+SQLite supports limited concurrent writes:
+```bash
+ps aux | grep crawlith
+kill <pid>
+```
+
+**Solution 2: Repair corrupted database**
+
+```bash
+# Backup first
+cp ~/.crawlith/crawlith.db ~/.crawlith/crawlith.db.backup
+
+# Attempt repair
+sqlite3 ~/.crawlith/crawlith.db "PRAGMA integrity_check;"
+```
+
+**Solution 3: Reset database**
+
+<Warning>
+This deletes all crawl history.
+</Warning>
+
+```bash
+rm ~/.crawlith/crawlith.db
+```
+
+Crawlith will create a new database on next run.
+
+### Redirect Issues
+
+**Symptom:**
+```
+status: 'redirect_limit_exceeded'
+status: 'redirect_loop'
+```
+
+**Cause:** Site has too many redirects or a circular redirect.
+
+**Solution 1: Increase redirect limit**
+
+```bash
+crawlith crawl https://example.com --max-redirects 5
+```
+
+Default: 2, Maximum: 11
+
+**Solution 2: Debug redirect chain**
+
+```bash
+crawlith crawl https://example.com --log-level debug
+```
+
+Look for `redirectChain` in output:
+```json
+{
+  "redirectChain": [
+    { "url": "http://example.com", "status": 301, "target": "https://example.com" },
+    { "url": "https://example.com", "status": 301, "target": "https://www.example.com" }
+  ]
+}
+```
+
+**Solution 3: Start from final URL**
+
+```bash
+crawlith crawl https://www.example.com
+```
+
+### Proxy Issues
+
+**Symptom:**
+```
+status: 'proxy_connection_failed'
+```
+
+**Causes:**
+
+1. **Invalid proxy URL**
+   
+   **Solution:**
+   ```bash
+   crawlith crawl https://example.com --proxy http://proxy.example.com:8080
+   ```
+
+2. **Proxy authentication required**
+   
+   **Solution:**
+   ```bash
+   crawlith crawl https://example.com --proxy http://user:pass@proxy.example.com:8080
+   ```
+
+3. **Proxy server unreachable**
+   
+   **Diagnosis:**
+   ```bash
+   curl -x http://proxy.example.com:8080 https://example.com
+   ```
+
+### Soft 404 Detection Issues
+
+**Symptom:** Pages incorrectly flagged as soft 404s.
+
+**Cause:** `--detect-soft404` uses heuristics that may have false positives.
+
+**Solution:**
+
+Review `soft404_score` in exported data:
+```bash
+crawlith crawl https://example.com --detect-soft404 --export json
+```
+
+Scores > 0.7 are flagged. Adjust detection logic if needed.
+
+### Orphan Detection Not Working
+
+**Symptom:** No orphans detected when expected.
+
+**Cause:** Orphan detection disabled by default.
+
+**Solution:**
+```bash
+crawlith crawl https://example.com --orphans
+```
+
+For severity scoring:
+```bash
+crawlith crawl https://example.com --orphans --orphan-severity
+```
+
+For near-orphans:
+```bash
+crawlith crawl https://example.com --orphans --include-soft-orphans --min-inbound 3
+```
+
+## Debugging Workflow
+
+### Step 1: Enable Debug Logging
+
+```bash
+crawlith crawl https://example.com --log-level debug > debug.log 2>&1
+```
+
+### Step 2: Check robots.txt
+
+```bash
+curl https://example.com/robots.txt
+```
+
+### Step 3: Test Single URL
+
+```bash
+crawlith crawl https://example.com --limit 1 --log-level debug
+```
+
+### Step 4: Review Lock Files
+
+```bash
+ls -lah ~/.crawlith/locks/
+cat ~/.crawlith/locks/*.lock
+```
+
+### Step 5: Check Database
+
+```bash
+sqlite3 ~/.crawlith/crawlith.db ".tables"
+sqlite3 ~/.crawlith/crawlith.db "SELECT * FROM snapshots ORDER BY created_at DESC LIMIT 5;"
+```
+
+### Step 6: Inspect Exports
+
+```bash
+crawlith crawl https://example.com --export json --output ./debug-output
+cat ./debug-output/example.com/graph.json | jq '.nodes[] | select(.status != 200)'
+```
+
+## Error Messages Reference
+
+<Accordion title="Error: URL argument is required for crawling">
+  **Cause:** No URL provided to crawl command.
+  
+  **Solution:**
+  ```bash
+  crawlith crawl https://example.com
+  ```
+</Accordion>
+
+<Accordion title="Error: Invalid proxy URL">
+  **Cause:** Malformed `--proxy` URL.
+  
+  **Solution:**
+  ```bash
+  crawlith crawl https://example.com --proxy http://proxy.example.com:8080
+  ```
+</Accordion>
+
+<Accordion title="Error: --orphan-severity requires --orphans">
+  **Cause:** Enabled severity without base orphan detection.
+  
+  **Solution:**
+  ```bash
+  crawlith crawl https://example.com --orphans --orphan-severity
+  ```
+</Accordion>
+
+<Accordion title="Blocked internal IP: 127.0.0.1">
+  **Cause:** SSRF protection blocked internal IP.
+  
+  **Solution:** Use public URLs or deploy Crawlith in the same network.
+</Accordion>
+
+<Accordion title="Failed to fetch robots.txt, proceeding...">
+  **Cause:** robots.txt unavailable (common and safe to ignore).
+  
+  **Solution:** No action needed. Crawlith proceeds without robots.txt.
+</Accordion>
+
+<Accordion title="Crawlith: command already running (PID 12345)">
+  **Cause:** Lock file exists from previous run.
+  
+  **Solution:**
+  ```bash
+  crawlith crawl https://example.com --force
+  ```
+</Accordion>
+
+<Accordion title="Detected stale lock. Continuing execution.">
+  **Cause:** Lock file exists but PID is dead.
+  
+  **Solution:** No action needed. Crawlith auto-cleans stale locks.
+</Accordion>
+
+## Performance Tuning
+
+### Fast Crawling (Your Infrastructure)
+
+```bash
+crawlith crawl https://example.com \
+  --rate 10 \
+  --concurrency 10 \
+  --max-bytes 5000000 \
+  --limit 10000
+```
+
+### Balanced (Default)
+
+```bash
+crawlith crawl https://example.com \
+  --rate 2 \
+  --concurrency 2 \
+  --limit 500
+```
+
+### Conservative (Public Sites)
+
+```bash
+crawlith crawl https://example.com \
+  --rate 0.5 \
+  --concurrency 1 \
+  --limit 200
+```
+
+## Getting Help
+
+If you're still experiencing issues:
+
+1. **Check existing issues**: Search [GitHub Issues](https://github.com/anomalyco/crawlith/issues)
+2. **Collect debug logs**:
+   ```bash
+   crawlith crawl https://example.com --log-level debug > debug.log 2>&1
+   ```
+3. **Include system info**:
+   ```bash
+   crawlith --version
+   node --version
+   uname -a
+   ```
+4. **Create a minimal reproduction**:
+   ```bash
+   crawlith crawl https://example.com --limit 10 --log-level debug
+   ```
+
+## Related Topics
+
+- [Configuration](/guides/configuration) - All command-line options
+- [Rate Limiting](/guides/rate-limiting) - Performance optimization
+- [Security](/guides/security) - Understanding security blocks
+
+## Technical Details
+
+### Source Files
+
+- `plugins/core/src/lock/lockManager.ts` - Lock file management
+- `plugins/core/src/lock/pidCheck.ts` - PID liveness checks
+- `plugins/core/src/lock/hashKey.ts` - Lock file naming
+- `plugins/cli/src/commands/crawl.ts` - CLI command implementation
+- `plugins/cli/src/output/controller.ts` - Logging and output formatting

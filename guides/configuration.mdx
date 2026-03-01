@@ -1,0 +1,232 @@
+---
+title: Configuration
+description: Command-line options, environment variables, and common configurations for Crawlith
+---
+
+## Overview
+
+Crawlith can be configured through command-line options to control crawling behavior, output formats, security boundaries, and export settings. All configuration happens at runtime through the CLI.
+
+## Command-Line Options
+
+### Core Crawling Options
+
+```bash
+crawlith crawl https://example.com [options]
+```
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `-l, --limit <number>` | number | `500` | Maximum number of pages to crawl |
+| `-d, --depth <number>` | number | `5` | Maximum click depth from start URL |
+| `-c, --concurrency <number>` | number | `2` | Maximum concurrent HTTP requests |
+| `--no-query` | boolean | `false` | Strip query parameters during normalization |
+| `--ignore-robots` | boolean | `false` | Ignore robots.txt rules |
+| `--incremental` | boolean | `false` | Use ETag/Last-Modified for efficient re-crawling |
+
+### Sitemap Integration
+
+```bash
+# Auto-discover sitemap at /sitemap.xml
+crawlith crawl https://example.com --sitemap
+
+# Use custom sitemap URL
+crawlith crawl https://example.com --sitemap https://example.com/sitemap_index.xml
+```
+
+Sitemap URLs are crawled with depth 0 and added to the initial queue.
+
+### Detection & Analysis
+
+| Option | Description |
+|--------|-------------|
+| `--detect-soft404` | Detect soft 404 pages using content heuristics |
+| `--detect-traps` | Identify crawl traps (infinite parameter spaces) |
+| `--orphans` | Enable orphan page detection |
+| `--orphan-severity` | Calculate severity scores for orphan pages |
+| `--include-soft-orphans` | Include near-orphans in detection |
+| `--min-inbound <number>` | Minimum inbound links to avoid near-orphan status (default: `2`) |
+| `--compute-hits` | Calculate Hub and Authority scores using HITS algorithm |
+
+### Content Clustering
+
+```bash
+crawlith crawl https://example.com \
+  --cluster-threshold 10 \
+  --min-cluster-size 3 \
+  --no-collapse
+```
+
+- `--cluster-threshold <number>`: Hamming distance for SimHash clustering (default: `10`)
+- `--min-cluster-size <number>`: Minimum pages to form a cluster (default: `3`)
+- `--no-collapse`: Prevent collapsing duplicate clusters before PageRank calculation
+
+### Output & Logging
+
+```bash
+# JSON output for programmatic parsing
+crawlith crawl https://example.com --format json
+
+# Debug mode with detailed logs
+crawlith crawl https://example.com --log-level debug
+```
+
+| Option | Values | Default | Description |
+|--------|--------|---------|-------------|
+| `--format <type>` | `pretty`, `json` | `pretty` | Output format |
+| `--log-level <level>` | `normal`, `verbose`, `debug` | `normal` | Logging verbosity |
+| `-o, --output <path>` | path | `./crawlith-reports` | Export directory |
+| `--score-breakdown` | boolean | `false` | Display health score component weights |
+| `--fail-on-critical` | boolean | `false` | Exit with code 1 if critical issues found |
+
+### Export Formats
+
+```bash
+# Export multiple formats during crawl
+crawlith crawl https://example.com --export json,html,csv,markdown,visualize
+
+# Or export after crawl completes
+crawlith export https://example.com --export json,html
+```
+
+Available formats:
+- `json` - Full graph and metrics data
+- `html` - Interactive HTML report
+- `csv` - Tabular data export
+- `markdown` - Human-readable documentation
+- `visualize` - D3.js force-directed graph
+
+## Configuration Examples
+
+### Basic Site Audit
+
+```bash
+crawlith crawl https://example.com \
+  --limit 1000 \
+  --depth 10 \
+  --orphans \
+  --detect-soft404 \
+  --export html,markdown
+```
+
+### Fast Shallow Crawl
+
+```bash
+crawlith crawl https://example.com \
+  --limit 100 \
+  --depth 2 \
+  --concurrency 5 \
+  --rate 5 \
+  --format json
+```
+
+### Deep Analysis with All Features
+
+```bash
+crawlith crawl https://example.com \
+  --limit 5000 \
+  --depth 15 \
+  --orphans \
+  --orphan-severity \
+  --detect-soft404 \
+  --detect-traps \
+  --compute-hits \
+  --export json,html,visualize \
+  --fail-on-critical
+```
+
+### Incremental Re-Crawl
+
+```bash
+# First crawl
+crawlith crawl https://example.com --limit 1000
+
+# Later re-crawl (uses ETag/Last-Modified caching)
+crawlith crawl https://example.com --limit 1000 --incremental
+```
+
+Incremental mode sends `If-None-Match` and `If-Modified-Since` headers, receiving HTTP 304 responses for unchanged pages.
+
+### Security-Focused Configuration
+
+```bash
+crawlith crawl https://example.com \
+  --allow example.com,cdn.example.com \
+  --deny api.example.com \
+  --max-bytes 1000000 \
+  --max-redirects 2 \
+  --rate 1
+```
+
+See [Security](/guides/security) for detailed information on security features.
+
+## Storage Location
+
+All crawl data is stored in a persistent SQLite database:
+
+```
+~/.crawlith/crawlith.db
+```
+
+Lock files are stored in:
+
+```
+~/.crawlith/locks/
+```
+
+See [Troubleshooting](/guides/troubleshooting) for lock file issues.
+
+## User-Agent Configuration
+
+```bash
+# Custom User-Agent string
+crawlith crawl https://example.com --ua "MyBot/1.0"
+```
+
+Default User-Agent: `crawlith/1.0`
+
+## Comparison Mode
+
+Compare two previously exported graph JSON files:
+
+```bash
+crawlith crawl --compare old.json new.json
+```
+
+Outputs:
+- Added URLs
+- Removed URLs
+- Status changes
+- Metric deltas (PageRank, health scores, etc.)
+
+## Best Practices
+
+<Accordion title="How many pages should I crawl?">
+  Start with `--limit 500` for initial exploration. Increase to 1000-5000 for comprehensive audits. Very large sites (10,000+ pages) should be crawled in segments or with higher depth limits to prioritize important pages.
+</Accordion>
+
+<Accordion title="What concurrency should I use?">
+  Default `--concurrency 2` is safe for most sites. Increase to 5-10 for fast servers you control. Always respect rate limits with `--rate` (see [Rate Limiting](/guides/rate-limiting)).
+</Accordion>
+
+<Accordion title="Should I enable all detection features?">
+  Enable features based on your needs:
+  - `--orphans`: Always recommended for SEO audits
+  - `--detect-soft404`: If you suspect thin content pages
+  - `--detect-traps`: For dynamic sites with URL parameters
+  - `--compute-hits`: For advanced link analysis (adds processing time)
+</Accordion>
+
+<Accordion title="How do I crawl only specific domains?">
+  Use `--allow` to create a whitelist:
+  ```bash
+  crawlith crawl https://example.com --allow example.com,cdn.example.com
+  ```
+  This ensures only these domains are fetched, even if linked from crawled pages.
+</Accordion>
+
+## Next Steps
+
+- Configure [Rate Limiting](/guides/rate-limiting) for respectful crawling
+- Set up [Security](/guides/security) boundaries for safe operation
+- Explore [Troubleshooting](/guides/troubleshooting) for common issues

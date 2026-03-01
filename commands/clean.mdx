@@ -1,0 +1,388 @@
+---
+title: "clean"
+description: "Clean crawl data, exports, or snapshots for a site"
+---
+
+## Usage
+
+```bash
+crawlith clean <url> [options]
+```
+
+The `clean` command removes crawl data from the database and/or exported files from disk. This is useful for managing disk space, removing outdated data, or completely resetting a site's crawl history.
+
+<Warning>
+This is a destructive operation that permanently deletes data. Use with caution and ensure you have backups if needed.
+</Warning>
+
+## Arguments
+
+<ParamField path="url" type="string" required>
+  URL or domain of the site to clean.
+  
+  ```bash
+  crawlith clean https://example.com
+  # or just the domain
+  crawlith clean example.com
+  ```
+</ParamField>
+
+## Options
+
+<ParamField path="--exports" type="boolean">
+  Clean exported files only. Removes all exports from the output directory while preserving database records.
+  
+  ```bash
+  crawlith clean https://example.com --exports
+  ```
+</ParamField>
+
+<ParamField path="--db" type="boolean">
+  Clean database entries only (site, snapshots, pages). Preserves exported files on disk.
+  
+  ```bash
+  crawlith clean https://example.com --db
+  ```
+</ParamField>
+
+<ParamField path="--snapshot" type="number">
+  Clean a specific snapshot by ID. Removes only the specified snapshot, leaving other snapshots intact.
+  
+  ```bash
+  crawlith clean https://example.com --snapshot 5
+  ```
+</ParamField>
+
+<ParamField path="--output" type="string" default="./crawlith-reports">
+  Output directory where exports are stored. Used when cleaning exported files.
+  
+  ```bash
+  crawlith clean https://example.com --exports --output ./custom-reports
+  ```
+</ParamField>
+
+<ParamField path="--yes" type="boolean">
+  Skip confirmation prompt. Useful for automation and scripts.
+  
+  ```bash
+  crawlith clean https://example.com --yes
+  ```
+</ParamField>
+
+## Behavior
+
+### Default (No Flags)
+
+If neither `--exports`, `--db`, nor `--snapshot` is specified, the command cleans **both** database records and exported files:
+
+```bash
+crawlith clean https://example.com
+```
+
+This removes:
+- All database records for the site
+- All snapshots and their page data
+- All exported files in the output directory
+
+### Exports Only
+
+```bash
+crawlith clean https://example.com --exports
+```
+
+Removes:
+- All exported files (JSON, HTML, CSV, etc.) from `./crawlith-reports/example.com/`
+
+Preserves:
+- Database records
+- Ability to re-export or view in UI
+
+### Database Only
+
+```bash
+crawlith clean https://example.com --db
+```
+
+Removes:
+- Site record from database
+- All snapshots for the site
+- All page data
+
+Preserves:
+- Exported files on disk
+
+### Specific Snapshot
+
+```bash
+crawlith clean https://example.com --snapshot 5
+```
+
+Removes:
+- Only snapshot #5 and its page data
+
+Preserves:
+- Other snapshots
+- Site record
+- Exported files
+
+## Confirmation Prompt
+
+By default, the command shows a confirmation prompt:
+
+```
+⚠️  Destructive Action ⚠️
+ - Delete ALL database records for example.com
+ - Delete ALL exported reports for example.com
+
+Are you sure you want to continue? (y/N)
+```
+
+Type `y` or `yes` to confirm, or `n`/`N` to cancel.
+
+Skip the prompt with `--yes`:
+
+```bash
+crawlith clean https://example.com --yes
+```
+
+## Examples
+
+### Complete Cleanup
+
+Remove all data (database + exports):
+
+```bash
+crawlith clean https://example.com
+```
+
+### Clean Exports Only
+
+Free up disk space while keeping database records:
+
+```bash
+crawlith clean https://example.com --exports
+```
+
+You can always re-export later:
+
+```bash
+crawlith export https://example.com --export json,html
+```
+
+### Clean Database Only
+
+Remove from tracking while preserving exported files:
+
+```bash
+crawlith clean https://example.com --db
+```
+
+### Remove Old Snapshot
+
+Delete a specific outdated snapshot:
+
+```bash
+# List snapshots to find ID
+crawlith sites --format json | jq '.[] | select(.domain=="example.com")'
+
+# Remove snapshot #3
+crawlith clean https://example.com --snapshot 3
+```
+
+### Automated Cleanup Script
+
+```bash
+#!/bin/bash
+# Clean sites that haven't been crawled in 90 days
+for domain in $(crawlith sites --format json | jq -r '.[] | select(
+  (.lastCrawl | fromdateiso8601) < (now - 7776000)
+) | .domain'); do
+  echo "Cleaning old data for $domain"
+  crawlith clean "https://$domain" --yes
+done
+```
+
+### Clean Multiple Sites
+
+```bash
+#!/bin/bash
+for site in old-site1.com old-site2.com old-site3.com; do
+  crawlith clean "https://$site" --yes
+done
+```
+
+### Free Disk Space
+
+```bash
+# Remove all exports but keep database
+for domain in $(crawlith sites --format json | jq -r '.[].domain'); do
+  crawlith clean "https://$domain" --exports --yes
+done
+```
+
+### Custom Export Directory
+
+```bash
+crawlith clean https://example.com --exports --output /var/crawlith-reports
+```
+
+## What Gets Deleted
+
+### Database Records
+
+When cleaning the database:
+
+- **sites** table: Site entry removed
+- **snapshots** table: All snapshots for the site removed
+- **pages** table: All page data for the site removed
+- **edges** table: All link data for the site removed
+- **issues** table: All detected issues removed
+- **clusters** table: All content clusters removed
+
+### Export Files
+
+When cleaning exports, the entire domain directory is removed:
+
+```
+crawlith-reports/
+└── example.com/        ← This entire directory is deleted
+    ├── graph.json
+    ├── report.md
+    ├── report.html
+    ├── pages.csv
+    └── ...
+```
+
+## Error Handling
+
+### Site Not Found
+
+```
+❌ Site not found in database: example.com
+```
+
+This occurs when:
+- The site has never been crawled
+- The site was already cleaned
+- The domain name is misspelled
+
+### Snapshot Not Found
+
+```
+❌ Snapshot #5 not found
+```
+
+The specified snapshot ID doesn't exist. List available snapshots:
+
+```bash
+crawlith sites --format json | jq '.[] | select(.domain=="example.com")'
+```
+
+### Snapshot Belongs to Different Site
+
+```
+❌ Snapshot #5 does not belong to example.com
+```
+
+The snapshot ID exists but is associated with a different site.
+
+### No Database Records
+
+```
+ℹ️  No database records found for example.com
+```
+
+The site doesn't exist in the database, but exports may still be cleaned if `--exports` was specified.
+
+## Use Cases
+
+### Development Testing
+
+Clean test crawls:
+
+```bash
+crawlith crawl https://test.example.com --limit 100
+# ... review results ...
+crawlith clean https://test.example.com --yes
+```
+
+### Disk Space Management
+
+Remove old exports periodically:
+
+```bash
+crawlith clean https://example.com --exports --yes
+```
+
+### Snapshot Rotation
+
+Keep only recent snapshots:
+
+```bash
+# Manually identify old snapshot IDs and remove them
+crawlith clean https://example.com --snapshot 1
+crawlith clean https://example.com --snapshot 2
+```
+
+### Client Offboarding
+
+Remove all data for a client's site:
+
+```bash
+crawlith clean https://client-site.com --yes
+```
+
+### Reset and Re-crawl
+
+Start fresh:
+
+```bash
+crawlith clean https://example.com --yes
+crawlith crawl https://example.com
+```
+
+### Bulk Cleanup
+
+Remove multiple old sites:
+
+```bash
+cat old-sites.txt | xargs -I {} crawlith clean "https://{}" --yes
+```
+
+## Safety Tips
+
+<Tip>
+**Test First**: Use without `--yes` to review what will be deleted before confirming.
+</Tip>
+
+<Tip>
+**Backup Exports**: If you might need the data later, copy exports before cleaning:
+```bash
+cp -r crawlith-reports/example.com ~/backups/
+crawlith clean https://example.com
+```
+</Tip>
+
+<Tip>
+**Incremental Cleanup**: Start with `--exports` only, then clean database if needed:
+```bash
+crawlith clean https://example.com --exports
+# Later, if sure:
+crawlith clean https://example.com --db
+```
+</Tip>
+
+<Warning>
+**No Undo**: Deleted database records cannot be recovered. You must re-crawl to restore data.
+</Warning>
+
+<Warning>
+**Concurrent Access**: Don't clean a site while it's being crawled or viewed in the UI. Stop other Crawlith processes first.
+</Warning>
+
+## Related Commands
+
+- [`sites`](/commands/sites) - View all tracked sites before cleaning
+- [`crawl`](/commands/crawl) - Re-crawl a site after cleaning
+- [`export`](/commands/export) - Export data before cleaning
+- [`ui`](/commands/ui) - Review data before deciding to clean

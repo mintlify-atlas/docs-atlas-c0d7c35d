@@ -1,0 +1,351 @@
+---
+title: Metrics API
+description: Calculate and analyze website metrics from crawl data
+---
+
+## calculateMetrics()
+
+Calculates aggregate metrics from a graph, including orphan detection, PageRank scores, and structural analysis.
+
+```typescript
+function calculateMetrics(
+  graph: Graph, 
+  maxDepth: number
+): Metrics
+```
+
+<ParamField path="graph" type="Graph" required>
+  The graph instance to analyze (from a crawl or loaded from snapshot).
+</ParamField>
+
+<ParamField path="maxDepth" type="number" required>
+  The maximum depth used during the crawl. Used for calculating efficiency metrics.
+</ParamField>
+
+<ResponseField name="metrics" type="Metrics">
+  A comprehensive metrics object. See [Metrics Interface](#metrics-interface) below.
+</ResponseField>
+
+### Example
+
+```typescript
+import { loadGraphFromSnapshot, calculateMetrics } from '@crawlith/core';
+
+const graph = loadGraphFromSnapshot(snapshotId);
+const metrics = calculateMetrics(graph, 4);
+
+console.log('Total pages:', metrics.totalPages);
+console.log('Total edges:', metrics.totalEdges);
+console.log('Orphan pages:', metrics.orphanPages.length);
+console.log('Crawl efficiency:', metrics.crawlEfficiencyScore);
+```
+
+## runPostCrawlMetrics()
+
+Calculates and persists all post-crawl metrics to the database. This includes PageRank, HITS algorithm, and updates the snapshot with health scores.
+
+```typescript
+function runPostCrawlMetrics(
+  snapshotId: number,
+  maxDepth: number,
+  context?: EngineContext,
+  limitReached?: boolean,
+  graphInstance?: Graph
+): void
+```
+
+<ParamField path="snapshotId" type="number" required>
+  The snapshot ID from a completed crawl.
+</ParamField>
+
+<ParamField path="maxDepth" type="number" required>
+  The maximum depth used during the crawl.
+</ParamField>
+
+<ParamField path="context" type="EngineContext">
+  Optional event context for monitoring progress.
+</ParamField>
+
+<ParamField path="limitReached" type="boolean" default="false">
+  Whether the crawl limit was reached.
+</ParamField>
+
+<ParamField path="graphInstance" type="Graph">
+  Optional pre-loaded graph instance. If not provided, loads from snapshot.
+</ParamField>
+
+### Example
+
+```typescript
+import { crawl, runPostCrawlMetrics } from '@crawlith/core';
+
+const snapshotId = await crawl('https://example.com', {
+  limit: 500,
+  depth: 4
+});
+
+// Calculate all metrics and update database
+runPostCrawlMetrics(snapshotId, 4);
+```
+
+### With Event Context
+
+```typescript
+const context = {
+  emit: (event: any) => {
+    if (event.type === 'metrics:start') {
+      console.log('Starting:', event.phase);
+    } else if (event.type === 'metrics:complete') {
+      console.log('Metrics complete!');
+    }
+  }
+};
+
+runPostCrawlMetrics(snapshotId, 4, context);
+```
+
+## Metrics Interface
+
+Comprehensive metrics calculated from the graph:
+
+```typescript
+interface Metrics {
+  // Basic counts
+  totalPages: number;
+  totalEdges: number;
+  
+  // Issue detection
+  orphanPages: string[];        // URLs with no inbound links (depth > 0)
+  nearOrphans: string[];        // URLs with only 1 inbound link and depth >= 3
+  deepPages: string[];          // URLs at depth >= 4
+  
+  // Aggregate metrics
+  averageOutDegree: number;     // Average number of outbound links per page
+  maxDepthFound: number;        // Maximum depth discovered
+  averageDepth: number;         // Average depth across all pages
+  
+  // Quality scores
+  crawlEfficiencyScore: number; // 1 - (deepPages / totalPages)
+  structuralEntropy: number;    // Shannon entropy of out-degree distribution
+  
+  // Rankings
+  topAuthorityPages: Array<{
+    url: string;
+    authority: number;
+  }>;
+  
+  topPageRankPages: Array<{
+    url: string;
+    score: number;
+  }>;
+  
+  // Metadata
+  limitReached: boolean;
+  sessionStats?: CrawlStats;
+}
+```
+
+## Metric Details
+
+### Orphan Pages
+
+Pages with no inbound links (except the start URL):
+
+```typescript
+const orphans = metrics.orphanPages;
+console.log(`Found ${orphans.length} orphan pages`);
+
+orphans.forEach(url => {
+  console.log(`  - ${url}`);
+});
+```
+
+**What it means**: Orphan pages are not linked from anywhere on your site, making them undiscoverable without direct access.
+
+### Near-Orphans
+
+Pages with only one inbound link and depth >= 3:
+
+```typescript
+const nearOrphans = metrics.nearOrphans;
+console.log(`Found ${nearOrphans.length} near-orphan pages`);
+```
+
+**What it means**: These pages are at risk of becoming orphans if the single link is removed.
+
+### Deep Pages
+
+Pages at depth 4 or greater:
+
+```typescript
+const deepPages = metrics.deepPages;
+console.log(`Found ${deepPages.length} deep pages`);
+```
+
+**What it means**: Deep pages require many clicks to reach from the homepage, potentially hurting SEO and user experience.
+
+### Crawl Efficiency Score
+
+Measures how flat your site structure is:
+
+```typescript
+const efficiency = metrics.crawlEfficiencyScore;
+console.log(`Crawl efficiency: ${(efficiency * 100).toFixed(1)}%`);
+```
+
+**Formula**: `1 - (deepPages / totalPages)`
+
+**Interpretation**:
+- **1.0 (100%)**: Perfect - no deep pages
+- **0.8-0.99**: Good - most pages easily accessible
+- **< 0.8**: Poor - many pages are too deep
+
+### Structural Entropy
+
+Measures diversity in the out-degree distribution:
+
+```typescript
+const entropy = metrics.structuralEntropy;
+console.log(`Structural entropy: ${entropy.toFixed(2)}`);
+```
+
+**Interpretation**:
+- **Higher entropy**: More diverse link structure
+- **Lower entropy**: More uniform link structure
+
+### Average Depth
+
+```typescript
+const avgDepth = metrics.averageDepth;
+console.log(`Average depth: ${avgDepth.toFixed(2)}`);
+```
+
+**What it means**: On average, how many clicks it takes to reach a page from the homepage.
+
+### Top Authority Pages
+
+Pages ranked by authority score (based on inbound links):
+
+```typescript
+const topAuthority = metrics.topAuthorityPages;
+console.log('Top 10 authority pages:');
+
+topAuthority.forEach((page, i) => {
+  console.log(`${i + 1}. ${page.url} (${page.authority.toFixed(3)})`);
+});
+```
+
+**Authority score**: Logarithmically scaled based on inbound link count.
+
+### Top PageRank Pages
+
+Pages ranked by PageRank algorithm:
+
+```typescript
+const topPageRank = metrics.topPageRankPages;
+console.log('Top 10 by PageRank:');
+
+topPageRank.forEach((page, i) => {
+  console.log(`${i + 1}. ${page.url} (${page.score.toFixed(4)})`);
+});
+```
+
+<Note>
+PageRank is only calculated if you run `runPostCrawlMetrics()` first, as it requires the HITS algorithm computation.
+</Note>
+
+## Advanced Metrics
+
+### Per-Page Metrics
+
+After running `runPostCrawlMetrics()`, each node in the graph has additional computed metrics:
+
+```typescript
+const graph = loadGraphFromSnapshot(snapshotId);
+
+for (const node of graph.getNodes()) {
+  console.log(node.url);
+  console.log('  PageRank:', node.pageRank);
+  console.log('  Authority:', node.authorityScore);
+  console.log('  Hub:', node.hubScore);
+  console.log('  Role:', node.linkRole);
+  console.log('  Word count:', node.wordCount);
+  console.log('  Thin content score:', node.thinContentScore);
+  console.log('  External link ratio:', node.externalLinkRatio);
+  console.log('  Orphan score:', node.orphanScore);
+}
+```
+
+### Link Roles
+
+Pages are classified by their link role:
+
+- **hub**: High outbound links, low inbound (linking to many pages)
+- **authority**: High inbound links, low outbound (linked from many pages)
+- **power**: High in both directions (central connector)
+- **balanced**: Moderate in both directions
+- **peripheral**: Low in both directions (edge of graph)
+
+```typescript
+const hubs = graph.getNodes().filter(n => n.linkRole === 'hub');
+const authorities = graph.getNodes().filter(n => n.linkRole === 'authority');
+```
+
+## Example: Health Dashboard
+
+Create a comprehensive health report:
+
+```typescript
+import { 
+  loadGraphFromSnapshot, 
+  calculateMetrics,
+  runPostCrawlMetrics 
+} from '@crawlith/core';
+
+// Run post-crawl analysis
+runPostCrawlMetrics(snapshotId, 4);
+
+// Load and analyze
+const graph = loadGraphFromSnapshot(snapshotId);
+const metrics = calculateMetrics(graph, 4);
+
+console.log('=== Site Health Report ===\n');
+
+console.log(`Total Pages: ${metrics.totalPages}`);
+console.log(`Total Links: ${metrics.totalEdges}`);
+console.log(`Average Depth: ${metrics.averageDepth.toFixed(2)}`);
+console.log(`Max Depth: ${metrics.maxDepthFound}\n`);
+
+console.log('Issues:');
+console.log(`  Orphan Pages: ${metrics.orphanPages.length}`);
+console.log(`  Near-Orphans: ${metrics.nearOrphans.length}`);
+console.log(`  Deep Pages: ${metrics.deepPages.length}\n`);
+
+console.log('Quality Scores:');
+console.log(`  Crawl Efficiency: ${(metrics.crawlEfficiencyScore * 100).toFixed(1)}%`);
+console.log(`  Structural Entropy: ${metrics.structuralEntropy.toFixed(2)}\n`);
+
+const errors = graph.getNodes().filter(n => n.status >= 400);
+console.log(`HTTP Errors: ${errors.length}`);
+
+const soft404s = graph.getNodes().filter(n => 
+  n.soft404Score && n.soft404Score > 0.5
+);
+console.log(`Soft 404s: ${soft404s.length}`);
+```
+
+## Example: Export Metrics to JSON
+
+```typescript
+import { writeFileSync } from 'fs';
+
+const metrics = calculateMetrics(graph, 4);
+
+// Export to file
+writeFileSync(
+  'metrics-report.json', 
+  JSON.stringify(metrics, null, 2)
+);
+
+console.log('Metrics exported to metrics-report.json');
+```

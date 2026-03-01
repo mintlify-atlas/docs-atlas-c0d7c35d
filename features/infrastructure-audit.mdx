@@ -1,0 +1,419 @@
+---
+title: 'Infrastructure Audit'
+description: 'TLS/SSL validation, DNS health checks, security headers, and certificate analysis'
+---
+
+## Overview
+
+Crawlith's infrastructure audit examines the technical foundation of your website, including TLS/SSL configuration, DNS resolution, security headers, and certificate validity. These checks help identify security vulnerabilities, configuration issues, and compliance problems.
+
+## What Gets Audited
+
+The infrastructure audit performs parallel checks across multiple layers:
+
+```typescript
+// From audit/index.ts:29-39
+const dnsPromise = resolveDns(url.hostname);
+const transportPromise = analyzeTransport(urlStr, timeout);
+
+const [dnsResult, transportResult] = await Promise.all([
+  dnsPromise,
+  transportPromise
+]);
+
+const headersResult = analyzeHeaders(transportResult.transport.headers);
+const scoringResult = calculateScore(/* ... */);
+```
+
+### Audit Components
+
+1. **DNS Resolution**: Validates domain resolution and DNS configuration
+2. **Transport Security**: Analyzes TLS/SSL version, cipher suites, and certificate
+3. **Security Headers**: Checks for critical HTTP security headers
+4. **Performance Metrics**: Measures connection and response times
+
+## DNS Health Checks
+
+DNS validation ensures your domain resolves correctly:
+
+```typescript
+// From audit/dns.ts
+export async function resolveDns(hostname: string): Promise<DnsResult> {
+  const dnsResult: DnsResult = {
+    hostname,
+    ipv4: [],
+    ipv6: [],
+    mx: [],
+    cname: null,
+    errors: []
+  };
+
+  // A records (IPv4)
+  // AAAA records (IPv6)
+  // MX records (email)
+  // CNAME records (aliasing)
+}
+```
+
+### DNS Checks Include
+
+- **A records**: IPv4 address resolution
+- **AAAA records**: IPv6 support
+- **MX records**: Email server configuration
+- **CNAME records**: Domain aliasing
+- **Resolution errors**: DNS failures or timeouts
+
+<Info>
+Proper DNS configuration is critical for website availability. Missing or incorrect DNS records can cause complete site outages.
+</Info>
+
+## TLS/SSL Analysis
+
+Crawlith validates transport layer security:
+
+```typescript
+// From audit/transport.ts
+export async function analyzeTransport(url: string, timeout: number) {
+  const transport: TransportInfo = {
+    protocol: '',
+    tlsVersion: null,
+    cipher: null,
+    certificateValid: false,
+    certificateExpiry: null,
+    certificateIssuer: null,
+    headers: {},
+    statusCode: 0,
+    redirectChain: []
+  };
+
+  // Analyze TLS handshake
+  // Validate certificate
+  // Check expiration date
+  // Verify issuer
+}
+```
+
+### TLS/SSL Checks
+
+**TLS Version**:
+- TLS 1.3 (optimal)
+- TLS 1.2 (acceptable)
+- TLS 1.1 or lower (deprecated, insecure)
+
+**Certificate Validation**:
+- Valid certificate chain
+- Not expired
+- Matches domain name
+- Issued by trusted CA
+
+**Cipher Suites**:
+- Strong ciphers (AES-GCM, ChaCha20)
+- Weak or deprecated ciphers flagged
+
+<Warning>
+Using TLS 1.0 or 1.1 is a critical security issue. Modern browsers have deprecated these versions due to known vulnerabilities.
+</Warning>
+
+### Certificate Information
+
+```typescript
+interface CertificateInfo {
+  valid: boolean;
+  expiry: Date | null;
+  issuer: string | null;
+  subject: string;
+  daysUntilExpiry: number;
+}
+```
+
+The audit extracts:
+- **Expiry date**: When the certificate expires
+- **Issuer**: Certificate authority (e.g., Let's Encrypt, DigiCert)
+- **Subject**: Domain names covered by the certificate
+- **Days until expiry**: Early warning for expiration
+
+## Security Headers
+
+Crawlith checks for critical HTTP security headers:
+
+```typescript
+// From audit/headers.ts
+export function analyzeHeaders(headers: Record<string, string | string[]>): SecurityHeadersResult {
+  return {
+    strictTransportSecurity: checkHeader(headers, 'strict-transport-security'),
+    contentSecurityPolicy: checkHeader(headers, 'content-security-policy'),
+    xFrameOptions: checkHeader(headers, 'x-frame-options'),
+    xContentTypeOptions: checkHeader(headers, 'x-content-type-options'),
+    referrerPolicy: checkHeader(headers, 'referrer-policy'),
+    permissionsPolicy: checkHeader(headers, 'permissions-policy')
+  };
+}
+```
+
+### Critical Security Headers
+
+| Header | Purpose | Recommended Value |
+|--------|---------|------------------|
+| **Strict-Transport-Security** | Force HTTPS connections | `max-age=31536000; includeSubDomains` |
+| **Content-Security-Policy** | Prevent XSS and injection attacks | Depends on site architecture |
+| **X-Frame-Options** | Prevent clickjacking | `DENY` or `SAMEORIGIN` |
+| **X-Content-Type-Options** | Prevent MIME sniffing | `nosniff` |
+| **Referrer-Policy** | Control referrer information | `strict-origin-when-cross-origin` |
+| **Permissions-Policy** | Control browser feature access | Depends on features used |
+
+### Header Status
+
+Each header is evaluated:
+- **Present**: Header is set with valid value
+- **Missing**: Header not found (potential security issue)
+- **Invalid**: Header present but misconfigured
+
+<Warning>
+**Missing Strict-Transport-Security (HSTS)** is a critical issue for HTTPS sites. Without HSTS, users are vulnerable to man-in-the-middle attacks during the initial HTTP → HTTPS redirect.
+</Warning>
+
+## SSRF Protection
+
+Crawlith includes built-in protection against Server-Side Request Forgery (SSRF):
+
+```typescript
+// From audit/index.ts:22-27
+const isSafe = await IPGuard.validateHost(url.hostname);
+if (!isSafe) {
+  throw new Error('Access to internal or private infrastructure is prohibited');
+}
+```
+
+The IP guard blocks requests to:
+- **Private IP ranges**: 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16
+- **Loopback addresses**: 127.0.0.0/8, ::1
+- **Link-local addresses**: 169.254.0.0/16, fe80::/10
+- **AWS metadata endpoints**: 169.254.169.254
+
+<Info>
+SSRF protection prevents attackers from using the audit tool to scan internal networks or access cloud provider metadata services.
+</Info>
+
+## Audit Scoring
+
+The infrastructure audit produces an overall security score:
+
+```typescript
+// From audit/scoring.ts
+export function calculateScore(
+  transport: TransportInfo,
+  dns: DnsResult,
+  headers: SecurityHeadersResult,
+  performance: PerformanceMetrics,
+  issues: Issue[]
+): ScoringResult {
+  let score = 100;
+  const issues: Issue[] = [];
+
+  // Deduct points for issues
+  if (!transport.certificateValid) score -= 30;
+  if (transport.tlsVersion !== 'TLSv1.3' && transport.tlsVersion !== 'TLSv1.2') score -= 20;
+  if (!headers.strictTransportSecurity.present) score -= 15;
+  // ...
+
+  const grade = scoreToGrade(score);
+  return { score, grade, issues };
+}
+```
+
+### Grade Scale
+
+| Score | Grade | Description |
+|-------|-------|-------------|
+| 90-100 | A | Excellent security posture |
+| 80-89 | B | Good, minor improvements needed |
+| 70-79 | C | Acceptable, several issues present |
+| 60-69 | D | Poor, significant security gaps |
+| 0-59 | F | Critical issues, immediate action required |
+
+### Issue Severity
+
+```typescript
+interface Issue {
+  category: 'certificate' | 'tls' | 'headers' | 'dns' | 'performance';
+  severity: 'critical' | 'high' | 'medium' | 'low';
+  message: string;
+  recommendation: string;
+}
+```
+
+**Severity levels**:
+- **Critical**: Certificate invalid, TLS 1.0/1.1, no HSTS on HTTPS site
+- **High**: Missing CSP, weak cipher suite, certificate expiring soon (&lt;30 days)
+- **Medium**: Missing X-Frame-Options, no IPv6 support
+- **Low**: Missing Referrer-Policy, suboptimal cipher suite
+
+## CLI Usage
+
+### Run Infrastructure Audit
+
+```bash
+crawlith audit https://example.com
+```
+
+Output includes:
+```
+🔒 Infrastructure Audit Report
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+🌐 DNS Health
+  ✓ A records:    93.184.216.34
+  ✓ AAAA records: 2606:2800:220:1:248:1893:25c8:1946
+  ✓ MX records:   10 mail.example.com
+
+🔐 TLS/SSL
+  ✓ Protocol:     TLS 1.3
+  ✓ Cipher:       TLS_AES_256_GCM_SHA384
+  ✓ Certificate:  Valid
+  ✓ Issuer:       Let's Encrypt
+  ✓ Expires:      2024-12-31 (321 days)
+
+🛡️ Security Headers
+  ✓ Strict-Transport-Security
+  ✓ Content-Security-Policy
+  ✗ X-Frame-Options (missing)
+  ✓ X-Content-Type-Options
+  ✗ Referrer-Policy (missing)
+
+📊 Score: 85/100 (Grade: B)
+
+⚠️ Issues Found:
+  [HIGH] Missing X-Frame-Options header
+  [MEDIUM] Missing Referrer-Policy header
+
+💡 Recommendations:
+  • Add X-Frame-Options: DENY to prevent clickjacking
+  • Set Referrer-Policy: strict-origin-when-cross-origin
+```
+
+### Audit with JSON Output
+
+```bash
+crawlith audit https://example.com --format json
+```
+
+Returns structured data:
+```json
+{
+  "url": "https://example.com",
+  "transport": {
+    "protocol": "https",
+    "tlsVersion": "TLSv1.3",
+    "cipher": "TLS_AES_256_GCM_SHA384",
+    "certificateValid": true,
+    "certificateExpiry": "2024-12-31T23:59:59Z",
+    "certificateIssuer": "Let's Encrypt"
+  },
+  "securityHeaders": {
+    "strictTransportSecurity": { "present": true, "value": "max-age=31536000" },
+    "contentSecurityPolicy": { "present": true },
+    "xFrameOptions": { "present": false }
+  },
+  "dns": {
+    "ipv4": ["93.184.216.34"],
+    "ipv6": ["2606:2800:220:1:248:1893:25c8:1946"]
+  },
+  "score": 85,
+  "grade": "B",
+  "issues": [
+    {
+      "category": "headers",
+      "severity": "high",
+      "message": "Missing X-Frame-Options header"
+    }
+  ]
+}
+```
+
+### Audit Multiple URLs
+
+```bash
+# Audit all pages from a crawl
+crawlith crawl https://example.com --export json
+
+# Then audit specific pages
+cat graph.json | jq -r '.nodes[].url' | while read url; do
+  crawlith audit "$url" --format json
+done
+```
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Enable HSTS on all HTTPS sites">
+    Set `Strict-Transport-Security: max-age=31536000; includeSubDomains; preload` to force HTTPS connections and prevent protocol downgrade attacks.
+  </Accordion>
+  
+  <Accordion title="Use TLS 1.3 or 1.2">
+    Disable TLS 1.0 and 1.1 on your servers. Configure strong cipher suites (ECDHE-RSA-AES256-GCM-SHA384 or better).
+  </Accordion>
+  
+  <Accordion title="Implement Content Security Policy">
+    A properly configured CSP prevents XSS attacks. Start with a restrictive policy and gradually relax as needed.
+  </Accordion>
+  
+  <Accordion title="Monitor certificate expiration">
+    Set up alerts 30+ days before certificate expiration. Use automated renewal (e.g., Let's Encrypt with certbot).
+  </Accordion>
+  
+  <Accordion title="Configure all security headers">
+    Implement X-Frame-Options, X-Content-Type-Options, Referrer-Policy, and Permissions-Policy for defense in depth.
+  </Accordion>
+</AccordionGroup>
+
+## Common Issues and Fixes
+
+### Missing HSTS Header
+
+**Problem**: No `Strict-Transport-Security` header on HTTPS site
+**Risk**: Users vulnerable to man-in-the-middle attacks
+**Fix** (Nginx):
+```nginx
+add_header Strict-Transport-Security "max-age=31536000; includeSubDomains; preload" always;
+```
+
+### Expired Certificate
+
+**Problem**: TLS certificate has expired
+**Risk**: Browsers show security warnings, users can't access site
+**Fix**: Renew certificate immediately using your CA's renewal process or Let's Encrypt:
+```bash
+sudo certbot renew
+sudo systemctl reload nginx
+```
+
+### Weak TLS Configuration
+
+**Problem**: Using TLS 1.0/1.1 or weak cipher suites
+**Risk**: Vulnerable to protocol downgrade and cipher attacks
+**Fix** (Nginx):
+```nginx
+ssl_protocols TLSv1.2 TLSv1.3;
+ssl_ciphers 'ECDHE-RSA-AES256-GCM-SHA384:ECDHE-RSA-AES128-GCM-SHA256';
+ssl_prefer_server_ciphers on;
+```
+
+### Missing X-Frame-Options
+
+**Problem**: No clickjacking protection
+**Risk**: Attackers can embed your site in iframes for phishing
+**Fix** (Apache):
+```apache
+Header always set X-Frame-Options "DENY"
+```
+
+## See Also
+
+<CardGroup cols={2}>
+  <Card title="SEO Analysis" icon="search" href="/features/seo-analysis">
+    Analyze on-page elements and content quality
+  </Card>
+  <Card title="Export Data" icon="file-export" href="/features/exports">
+    Export audit results for compliance reporting
+  </Card>
+</CardGroup>

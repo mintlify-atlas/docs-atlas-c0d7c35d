@@ -1,0 +1,160 @@
+---
+title: "ui"
+description: "Start the Crawlith UI Dashboard to visualize crawl results"
+---
+
+## Usage
+
+```bash
+crawlith ui <url> [options]
+```
+
+The `ui` command launches an interactive web dashboard to visualize and explore your crawl data. It provides detailed insights into your site's link graph, metrics, SEO issues, and more.
+
+## Arguments
+
+<ParamField path="url" type="string" required>
+  Site URL or domain to visualize. Must have been previously crawled using `crawlith crawl`.
+  
+  ```bash
+  crawlith ui https://example.com
+  # or just the domain
+  crawlith ui example.com
+  ```
+</ParamField>
+
+## Options
+
+<ParamField path="--port" type="number" default="23484">
+  Port number to run the dashboard server on.
+  
+  ```bash
+  crawlith ui https://example.com --port 8080
+  ```
+</ParamField>
+
+<ParamField path="--host" type="string" default="127.0.0.1">
+  Host address to bind the server to. Use `0.0.0.0` to allow external access.
+  
+  ```bash
+  # Allow access from other machines on your network
+  crawlith ui https://example.com --host 0.0.0.0
+  ```
+</ParamField>
+
+## How It Works
+
+1. **Domain Resolution**: The command normalizes the provided URL to extract the domain
+2. **Database Lookup**: Searches for the site in the local Crawlith database
+3. **Snapshot Selection**: Automatically loads the latest completed snapshot
+4. **Server Launch**: Starts a local web server with the dashboard interface
+5. **Auto-Open**: Automatically opens the dashboard in your default browser
+
+## Examples
+
+### Basic Usage
+
+```bash
+crawlith ui https://example.com
+```
+
+This will:
+- Start the dashboard on `http://127.0.0.1:23484`
+- Load the latest snapshot for example.com
+- Automatically open your browser
+
+### Custom Port
+
+```bash
+crawlith ui example.com --port 3000
+```
+
+### Network Access
+
+```bash
+crawlith ui example.com --host 0.0.0.0 --port 8080
+```
+
+Access from other devices at `http://<your-ip>:8080`
+
+### Multiple Sites
+
+```bash
+# Terminal 1
+crawlith ui site1.com --port 3001
+
+# Terminal 2
+crawlith ui site2.com --port 3002
+```
+
+## Error Messages
+
+### Site Not Found
+
+```
+❌ Site not found: example.com
+   Run "crawlith crawl example.com" first to generate data.
+```
+
+**Solution**: You need to crawl the site first before you can visualize it.
+
+```bash
+crawlith crawl https://example.com
+crawlith ui https://example.com
+```
+
+### No Snapshots Found
+
+```
+❌ No snapshots found for site: example.com
+```
+
+**Solution**: The site exists in the database but has no completed crawls. Run a crawl:
+
+```bash
+crawlith crawl https://example.com
+```
+
+### Web Build Not Found
+
+```
+❌ Web build not found at /path/to/ui.
+   Please run "npm run build" in plugins/web first.
+```
+
+**Solution**: This is a development error. The UI dashboard files are missing. If you're running from source, build the web interface first.
+
+## Dashboard Features
+
+The UI provides interactive visualization of:
+
+- **Link Graph**: Visual representation of your site's internal link structure
+- **Page Metrics**: PageRank, authority scores, and other page-level metrics
+- **SEO Issues**: Orphan pages, duplicate content, crawl traps, soft 404s
+- **Health Score**: Overall site health with detailed breakdowns
+- **Content Clusters**: Groups of similar pages detected during crawl
+- **Export Data**: Download reports in various formats
+
+<Note>
+The dashboard runs entirely locally on your machine. No data is sent to external servers.
+</Note>
+
+<Tip>
+Keep the terminal window open while using the dashboard. Closing the terminal or pressing `Ctrl+C` will stop the server.
+</Tip>
+
+<Warning>
+If you bind to `0.0.0.0`, ensure your firewall is properly configured. Anyone on your network will be able to access the dashboard.
+</Warning>
+
+## Stopping the Server
+
+To stop the dashboard server, press `Ctrl+C` in the terminal where it's running.
+
+## Next Steps
+
+After exploring the dashboard:
+
+- Export data in different formats using the [`export`](/commands/export) command
+- Re-crawl to update data using `crawlith crawl --incremental`
+- Compare snapshots over time to track changes

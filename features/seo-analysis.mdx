@@ -1,0 +1,405 @@
+---
+title: 'SEO Analysis'
+description: 'Title, meta description, H1 validation, structured data detection, and thin content scoring'
+---
+
+## Overview
+
+Crawlith analyzes on-page SEO elements to identify optimization opportunities and potential issues. The analysis includes validation of titles, meta descriptions, H1 tags, structured data detection, and content quality assessment.
+
+## Title Analysis
+
+Crawlith validates page titles against SEO best practices:
+
+```typescript
+// From seo.ts:21-33
+export function analyzeTitle($: CheerioAPI | string): TextFieldAnalysis {
+  const title = cheerioObj('title').first().text().trim();
+  if (!title) {
+    return { value: null, length: 0, status: 'missing' };
+  }
+
+  if (title.length < 50) return { value: title, length: title.length, status: 'too_short' };
+  if (title.length > 60) return { value: title, length: title.length, status: 'too_long' };
+  return { value: title, length: title.length, status: 'ok' };
+}
+```
+
+### Title Status Values
+
+| Status | Condition | Recommendation |
+|--------|-----------|----------------|
+| `missing` | No `<title>` tag | Add a title tag to every page |
+| `too_short` | < 50 characters | Expand to 50-60 characters for better SERP display |
+| `too_long` | > 60 characters | Shorten to avoid truncation in search results |
+| `duplicate` | Same as another page | Create unique titles for each page |
+| `ok` | 50-60 characters, unique | Optimal length |
+
+<Info>
+Title tags are one of the most important on-page SEO elements. Google typically displays the first 50-60 characters in search results.
+</Info>
+
+## Meta Description Analysis
+
+```typescript
+// From seo.ts:35-52
+export function analyzeMetaDescription($: CheerioAPI | string): TextFieldAnalysis {
+  const raw = cheerioObj('meta[name="description"]').attr('content');
+  if (raw === undefined) {
+    return { value: null, length: 0, status: 'missing' };
+  }
+
+  const description = raw.trim();
+  if (!description) {
+    return { value: '', length: 0, status: 'missing' };
+  }
+
+  if (description.length < 140) return { value: description, length: description.length, status: 'too_short' };
+  if (description.length > 160) return { value: description, length: description.length, status: 'too_long' };
+  return { value: description, length: description.length, status: 'ok' };
+}
+```
+
+### Meta Description Guidelines
+
+- **Optimal length**: 140-160 characters
+- **Too short**: Less than 140 characters (underutilizes SERP space)
+- **Too long**: More than 160 characters (gets truncated)
+- **Missing**: No meta description tag (Google generates one from content)
+
+<Warning>
+Missing meta descriptions allow search engines to generate their own snippets, which may not accurately represent your page or include your target keywords.
+</Warning>
+
+## H1 Analysis
+
+H1 tags provide page hierarchy and topical signals:
+
+```typescript
+// From seo.ts:54-70
+export function analyzeH1($: CheerioAPI | string, titleValue: string | null): H1Analysis {
+  const h1Values = cheerioObj('h1').toArray().map((el) => cheerioObj(el).text().trim()).filter(Boolean);
+  const count = h1Values.length;
+  const first = h1Values[0] || null;
+  const matchesTitle = Boolean(first && titleValue && normalizedText(first) === normalizedText(titleValue));
+
+  if (count === 0) {
+    return { count, status: 'critical', matchesTitle };
+  }
+  if (count > 1) {
+    return { count, status: 'warning', matchesTitle };
+  }
+  return { count, status: 'ok', matchesTitle };
+}
+```
+
+### H1 Status Levels
+
+| Status | Condition | Issue |
+|--------|-----------|-------|
+| `critical` | No H1 tags | Missing primary heading signal |
+| `warning` | Multiple H1 tags | Diluted topical focus, confuses search engines |
+| `ok` | Exactly one H1 | Follows best practices |
+
+### H1-Title Matching
+
+The analyzer also checks if the H1 matches the title tag:
+
+```typescript
+const matchesTitle = Boolean(
+  first && titleValue && 
+  normalizedText(first) === normalizedText(titleValue)
+);
+```
+
+**Why it matters**: When H1 and title match, it reinforces topical consistency and keyword targeting.
+
+## Duplicate Detection
+
+Crawlith detects duplicate titles and meta descriptions across your site:
+
+```typescript
+// From seo.ts:72-99
+export function applyDuplicateStatuses<T extends { value: string | null; status: string }>(items: T[]): T[] {
+  const counts = new Map<string, number>();
+  const normalizedToOriginal = new Map<string, string>();
+
+  // First pass: count occurrences
+  for (const item of items) {
+    if (item.value) {
+      const normalized = normalizedText(item.value);
+      if (normalized) {
+        counts.set(normalized, (counts.get(normalized) || 0) + 1);
+      }
+    }
+  }
+
+  // Second pass: apply duplicate status
+  return items.map(item => {
+    if (item.value) {
+      const normalized = normalizedText(item.value);
+      if ((counts.get(normalized) || 0) > 1) {
+        return { ...item, status: 'duplicate' };
+      }
+    }
+    return item;
+  });
+}
+```
+
+**Duplicate detection uses case-insensitive comparison** to catch variations like "Home Page" vs. "home page".
+
+## Structured Data Detection
+
+Crawlith analyzes JSON-LD structured data for Schema.org markup:
+
+```typescript
+// From structuredData.ts:9-41
+export function analyzeStructuredData($: CheerioAPI | string): StructuredDataResult {
+  const scripts = cheerioObj('script[type="application/ld+json"]').toArray();
+  if (scripts.length === 0) {
+    return { present: false, types: [], valid: false };
+  }
+
+  const types = new Set<string>();
+  let valid = true;
+
+  for (const script of scripts) {
+    const raw = cheerioObj(script).text().trim();
+    if (!raw) {
+      valid = false;
+      continue;
+    }
+
+    try {
+      const parsed = JSON.parse(raw);
+      extractTypes(parsed, types);
+    } catch {
+      valid = false;
+    }
+  }
+
+  return {
+    present: true,
+    valid,
+    types: Array.from(types)
+  };
+}
+```
+
+### Extracted Schema Types
+
+Crawlith extracts `@type` values from JSON-LD, including:
+- **Article**, **BlogPosting**, **NewsArticle**
+- **Product**, **Offer**
+- **Organization**, **LocalBusiness**
+- **BreadcrumbList**, **WebPage**
+- **FAQPage**, **HowTo**, **Recipe**
+
+```typescript
+// From structuredData.ts:43-64
+function extractTypes(input: unknown, types: Set<string>): void {
+  if (Array.isArray(input)) {
+    input.forEach((item) => extractTypes(item, types));
+    return;
+  }
+
+  if (!input || typeof input !== 'object') return;
+
+  const maybeType = (input as Record<string, unknown>)['@type'];
+  if (typeof maybeType === 'string') {
+    types.add(maybeType);
+  }
+
+  // Handle @graph arrays
+  const graph = (input as Record<string, unknown>)['@graph'];
+  if (Array.isArray(graph)) {
+    graph.forEach((item) => extractTypes(item, types));
+  }
+}
+```
+
+## Thin Content Detection
+
+Crawlith scores pages for "thin content" based on word count, text-to-HTML ratio, and uniqueness:
+
+```typescript
+// From content.ts:55-69
+export function calculateThinContentScore(
+  content: ContentAnalysis,
+  duplicationScore: number,
+  weights: ThinScoreWeights = DEFAULT_WEIGHTS
+): number {
+  const wordScore = content.wordCount >= 300 ? 0 : 100 - Math.min(100, (content.wordCount / 300) * 100);
+  const textRatioScore = content.textHtmlRatio >= 0.2 ? 0 : 100 - Math.min(100, (content.textHtmlRatio / 0.2) * 100);
+
+  const raw =
+    weights.lowWordWeight * wordScore +
+    weights.ratioWeight * textRatioScore +
+    weights.dupWeight * duplicationScore;
+
+  return Math.max(0, Math.min(100, Number(raw.toFixed(2))));
+}
+```
+
+### Content Analysis Metrics
+
+```typescript
+// From content.ts:3-7
+export interface ContentAnalysis {
+  wordCount: number;
+  textHtmlRatio: number;
+  uniqueSentenceCount: number;
+}
+```
+
+**wordCount**: Number of words after removing scripts, styles, nav, and footer
+**textHtmlRatio**: Ratio of visible text to total HTML size
+**uniqueSentenceCount**: Number of unique sentences (deduplication check)
+
+### Scoring Weights
+
+```typescript
+const DEFAULT_WEIGHTS: ThinScoreWeights = {
+  lowWordWeight: 0.4,      // 40% weight on word count
+  ratioWeight: 0.35,       // 35% weight on text/HTML ratio
+  dupWeight: 0.25          // 25% weight on duplication
+};
+```
+
+**Score interpretation**:
+- **0-25**: High-quality, substantive content
+- **25-50**: Moderate content, may need expansion
+- **50-75**: Thin content, likely needs improvement
+- **75-100**: Very thin content, critical issue
+
+<Warning>
+Pages with thin content (high scores) are at risk of:
+- Lower search rankings
+- Being excluded from search indexes
+- Poor user engagement and high bounce rates
+</Warning>
+
+## CLI Usage
+
+### Run SEO Analysis
+
+```bash
+# Full crawl with SEO analysis (enabled by default)
+crawlith crawl https://example.com
+```
+
+SEO analysis runs automatically during crawling and includes:
+- Title and meta description validation
+- H1 tag analysis
+- Structured data detection
+- Thin content scoring
+- Duplicate detection across all pages
+
+### Export SEO Data
+
+```bash
+# Export to JSON for detailed analysis
+crawlith crawl https://example.com --export json
+
+# Export to CSV for spreadsheet analysis
+crawlith crawl https://example.com --export csv
+```
+
+The JSON export includes per-page SEO metrics:
+```json
+{
+  "nodes": [
+    {
+      "url": "https://example.com/page",
+      "title": "Page Title",
+      "titleLength": 55,
+      "titleStatus": "ok",
+      "metaDescription": "Description...",
+      "h1Count": 1,
+      "h1Status": "ok",
+      "structuredDataTypes": ["Article", "BreadcrumbList"],
+      "wordCount": 850,
+      "thinContentScore": 15.3
+    }
+  ]
+}
+```
+
+### View SEO Summary
+
+```bash
+# View high-level insights in terminal
+crawlith crawl https://example.com
+```
+
+The terminal output includes:
+- Pages with missing or duplicate titles
+- Pages with missing or duplicate meta descriptions
+- Pages with H1 issues (missing or multiple)
+- Pages with thin content (high scores)
+- Pages with structured data
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Unique titles for every page">
+    Ensure each page has a unique, descriptive title between 50-60 characters. Avoid using the same title across multiple pages.
+  </Accordion>
+  
+  <Accordion title="Write compelling meta descriptions">
+    Craft unique meta descriptions (140-160 characters) that accurately summarize the page and encourage clicks from search results.
+  </Accordion>
+  
+  <Accordion title="Use one H1 per page">
+    Each page should have exactly one H1 tag that clearly describes the page topic. Multiple H1s dilute topical focus.
+  </Accordion>
+  
+  <Accordion title="Add structured data">
+    Implement Schema.org markup (JSON-LD) for rich snippets. Common types include Article, Product, LocalBusiness, and BreadcrumbList.
+  </Accordion>
+  
+  <Accordion title="Create substantive content">
+    Aim for at least 300 words of unique, valuable content per page. Pages with thin content (< 300 words) may struggle to rank.
+  </Accordion>
+</AccordionGroup>
+
+## Common Issues and Fixes
+
+### Duplicate Titles
+
+**Problem**: Multiple pages share the same title tag
+**Impact**: Search engines can't differentiate pages, potential ranking penalties
+**Fix**: Create unique titles that accurately describe each page's content
+
+### Missing Meta Descriptions
+
+**Problem**: Pages lack `<meta name="description">` tags
+**Impact**: Search engines generate snippets from page content (may not be optimal)
+**Fix**: Write custom meta descriptions for important pages
+
+### Multiple H1 Tags
+
+**Problem**: Page contains more than one H1 element
+**Impact**: Dilutes topical focus, confuses search engines about page hierarchy
+**Fix**: Use only one H1 for the main page heading, use H2-H6 for subheadings
+
+### Thin Content
+
+**Problem**: Pages with very few words or low text-to-HTML ratio
+**Impact**: Perceived as low-quality by search engines, poor user experience
+**Fix**: Expand content to at least 300 words, ensure substantive value
+
+## See Also
+
+<CardGroup cols={2}>
+  <Card title="Graph Analysis" icon="chart-network" href="/features/graph-analysis">
+    Identify structural SEO issues like orphan pages and poor internal linking
+  </Card>
+  <Card title="Content Clustering" icon="layer-group" href="/features/graph-analysis#content-clustering">
+    Detect keyword cannibalization and content overlap issues
+  </Card>
+  <Card title="Export Data" icon="file-export" href="/features/exports">
+    Export SEO analysis results for reporting and tracking
+  </Card>
+</CardGroup>

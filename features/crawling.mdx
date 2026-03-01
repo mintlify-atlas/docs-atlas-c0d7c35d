@@ -1,0 +1,193 @@
+---
+title: 'Web Crawling'
+description: 'BFS algorithm, robots.txt compliance, sitemap support, and intelligent rate limiting'
+---
+
+## Overview
+
+Crawlith uses a breadth-first search (BFS) algorithm to systematically discover and crawl web pages. The crawler respects robots.txt directives, supports sitemap discovery, and implements sophisticated rate limiting to ensure responsible crawling.
+
+## How It Works
+
+### Breadth-First Search Algorithm
+
+The crawler starts from a seed URL and explores pages level by level, ensuring optimal discovery depth:
+
+```typescript
+// From crawler.ts:190-202
+private addToQueue(url: string, depth: number): void {
+  if (this.scopeManager!.isUrlEligible(url) !== 'allowed') return;
+  if (!this.uniqueQueue.has(url)) {
+    this.uniqueQueue.add(url);
+    this.queue.push({ url, depth });
+    this.context.emit({ type: 'queue:enqueue', url, depth });
+
+    const currentDiscovery = this.discoveryDepths.get(url);
+    if (currentDiscovery === undefined || depth < currentDiscovery) {
+      this.discoveryDepths.set(url, depth);
+    }
+  }
+}
+```
+
+**Why BFS matters**: Pages at shallower depths are typically more important in a site's information architecture. BFS ensures you discover critical pages first, even with page limits.
+
+### Robots.txt Compliance
+
+Crawlith automatically fetches and parses robots.txt before crawling:
+
+```typescript
+// From crawler.ts:164-175
+async fetchRobots(): Promise<void> {
+  try {
+    const robotsUrl = new URL('/robots.txt', this.rootOrigin).toString();
+    const res = await this.fetcher!.fetch(robotsUrl, { maxBytes: 500000 });
+    if (res && typeof res.status === 'number' && res.status >= 200 && res.status < 300) {
+      this.robots = robotsParser(robotsUrl, res.body);
+    }
+  } catch {
+    console.warn('Failed to fetch robots.txt, proceeding...');
+  }
+}
+```
+
+The crawler checks both the exact path and path with trailing slash to handle normalization edge cases:
+
+```typescript
+// From crawler.ts:568-571
+const isBlocked = this.robots && (
+  !this.robots.isAllowed(item.url, 'crawlith') ||
+  (!item.url.endsWith('/') && !this.robots.isAllowed(item.url + '/', 'crawlith'))
+);
+```
+
+### Sitemap Support
+
+Crawlith can seed the crawl queue from XML sitemaps, including sitemap indexes:
+
+```typescript
+// From sitemap.ts:22-28
+private async processSitemap(url: string, visited: Set<string>, urls: Set<string>) {
+  if (visited.has(url)) return;
+  visited.add(url);
+
+  // Hard limit on number of sitemaps to fetch to prevent abuse
+  if (visited.size > 50) return;
+  // ...
+}
+```
+
+**Features**:
+- Recursive sitemap index processing
+- Loop detection and depth limits (max 50 sitemaps)
+- Automatic URL normalization from sitemap entries
+
+### Rate Limiting
+
+Crawlith implements token-bucket rate limiting per host with crawl-delay support:
+
+```typescript
+// From rateLimiter.ts:9-16
+async waitForToken(host: string, crawlDelay: number = 0): Promise<void> {
+  const effectiveRate = crawlDelay > 0 ? Math.min(this.rate, 1 / crawlDelay) : this.rate;
+  const interval = 1000 / effectiveRate;
+
+  if (!this.buckets.has(host)) {
+    this.buckets.set(host, { tokens: this.rate - 1, lastRefill: Date.now() });
+    return;
+  }
+  // ...
+}
+```
+
+**Key features**:
+- Per-host token buckets (prevents overwhelming specific servers)
+- Respects `Crawl-delay` directive from robots.txt
+- Smooth request distribution using token refill algorithm
+
+## CLI Usage
+
+### Basic Crawl
+
+```bash
+crawlith crawl https://example.com
+```
+
+### Crawl with Sitemap
+
+```bash
+# Auto-discover sitemap.xml
+crawlith crawl https://example.com --sitemap
+
+# Use specific sitemap URL
+crawlith crawl https://example.com --sitemap https://example.com/sitemap_index.xml
+```
+
+### Configure Rate Limiting
+
+```bash
+# Limit to 5 requests per second per host
+crawlith crawl https://example.com --rate 5
+
+# Use higher concurrency (respects rate limit)
+crawlith crawl https://example.com --rate 10 --concurrency 5
+```
+
+### Ignore Robots.txt
+
+```bash
+crawlith crawl https://example.com --ignore-robots
+```
+
+<Warning>
+Only use `--ignore-robots` on sites you own or have permission to crawl. Ignoring robots.txt may violate a site's terms of service.
+</Warning>
+
+### Control Crawl Scope
+
+```bash
+# Limit pages and depth
+crawlith crawl https://example.com --limit 1000 --depth 4
+
+# Include subdomains
+crawlith crawl https://example.com --include-subdomains
+
+# Allow specific domains
+crawlith crawl https://example.com --allow "example.com,blog.example.com"
+```
+
+## Advanced Options
+
+<CardGroup cols={2}>
+  <Card title="Incremental Crawls" icon="rotate" href="/features/incremental-crawls">
+    Use ETag and Last-Modified headers to skip unchanged pages
+  </Card>
+  <Card title="Trap Detection" icon="shield" href="/features/crawling#trap-detection">
+    Detect and avoid crawl traps with pattern analysis
+  </Card>
+</CardGroup>
+
+## Configuration Reference
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--limit` | 500 | Maximum pages to crawl |
+| `--depth` | 5 | Maximum click depth from start URL |
+| `--rate` | 2 | Requests per second per host |
+| `--concurrency` | 2 | Maximum concurrent requests |
+| `--max-redirects` | 2 | Maximum redirect hops to follow |
+| `--max-bytes` | 2000000 | Maximum response size (bytes) |
+| `--sitemap` | - | Sitemap URL or `true` for auto-discovery |
+| `--ignore-robots` | false | Skip robots.txt checking |
+| `--include-subdomains` | false | Crawl subdomains of start URL |
+
+## See Also
+
+<CardGroup cols={2}>
+  <Card title="Graph Analysis" icon="chart-network" href="/features/graph-analysis">
+    Analyze crawl results with PageRank and orphan detection
+  </Card>
+  <Card title="Export Data" icon="file-export" href="/features/exports">
+    Export crawl results to JSON, CSV, Markdown, or HTML
+  </Card>
+</CardGroup>

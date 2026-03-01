@@ -1,0 +1,393 @@
+---
+title: "page"
+description: "Analyze a single URL for on-page SEO signals and content structure"
+---
+
+## Usage
+
+```bash
+crawlith page [url] [options]
+```
+
+The `page` command performs detailed on-page analysis of a single URL, evaluating SEO signals, content quality, accessibility, and structured data. Unlike the `crawl` command which analyzes entire sites, `page` focuses on individual page optimization.
+
+## Arguments
+
+<ParamField path="url" type="string" required>
+  URL to analyze. Must be a valid HTTP/HTTPS URL.
+  
+  ```bash
+  crawlith page https://example.com/article
+  ```
+</ParamField>
+
+## Core Options
+
+<ParamField path="--live" type="boolean">
+  Perform a live crawl before analysis. By default, the command uses cached data if available.
+  
+  ```bash
+  crawlith page https://example.com/page --live
+  ```
+</ParamField>
+
+<ParamField path="--format" type="string" default="pretty">
+  Output format. Options: `pretty`, `json`.
+  
+  ```bash
+  crawlith page https://example.com/page --format json
+  ```
+</ParamField>
+
+<ParamField path="--log-level" type="string" default="normal">
+  Log verbosity level. Options: `normal`, `verbose`, `debug`.
+  
+  ```bash
+  crawlith page https://example.com/page --log-level verbose
+  ```
+</ParamField>
+
+## Analysis Modules
+
+By default, all analysis modules are enabled. Use these flags to focus on specific areas:
+
+<ParamField path="--seo" type="boolean">
+  Show only SEO module output (titles, meta descriptions, structured data, links).
+  
+  ```bash
+  crawlith page https://example.com/page --seo
+  ```
+</ParamField>
+
+<ParamField path="--content" type="boolean">
+  Show only content module output (word count, text/HTML ratio, readability).
+  
+  ```bash
+  crawlith page https://example.com/page --content
+  ```
+</ParamField>
+
+<ParamField path="--accessibility" type="boolean">
+  Show only accessibility module output (image alt text, ARIA labels, semantic HTML).
+  
+  ```bash
+  crawlith page https://example.com/page --accessibility
+  ```
+</ParamField>
+
+## Network Options
+
+<ParamField path="--proxy" type="string">
+  Proxy URL for live crawls (format: `http://user:pass@host:port`).
+  
+  ```bash
+  crawlith page https://example.com/page --live --proxy http://proxy.example.com:8080
+  ```
+</ParamField>
+
+<ParamField path="--ua" type="string">
+  Custom User-Agent string for live crawls.
+  
+  ```bash
+  crawlith page https://example.com/page --live --ua "MyBot/1.0"
+  ```
+</ParamField>
+
+<ParamField path="--max-redirects" type="number" default="2">
+  Maximum number of redirect hops to follow during live crawls.
+  
+  ```bash
+  crawlith page https://example.com/page --live --max-redirects 5
+  ```
+</ParamField>
+
+## Content Clustering Options
+
+<ParamField path="--cluster-threshold" type="number" default="10">
+  Hamming distance threshold for content similarity detection.
+  
+  ```bash
+  crawlith page https://example.com/page --cluster-threshold 15
+  ```
+</ParamField>
+
+<ParamField path="--min-cluster-size" type="number" default="3">
+  Minimum number of pages required to form a content cluster.
+  
+  ```bash
+  crawlith page https://example.com/page --min-cluster-size 5
+  ```
+</ParamField>
+
+## Export Options
+
+<ParamField path="--export" type="string">
+  Export formats (comma-separated). Available formats: `json`, `markdown`, `csv`, `html`.
+  
+  ```bash
+  crawlith page https://example.com/page --export json,html
+  ```
+</ParamField>
+
+## What It Analyzes
+
+### SEO Signals
+- Title tag (presence, length, optimization)
+- Meta description (presence, length, uniqueness)
+- Heading structure (H1-H6 hierarchy)
+- Canonical URL
+- Structured data (JSON-LD, Schema.org)
+- Internal and external links
+- Link ratios and anchor text
+
+### Content Quality
+- Word count
+- Text-to-HTML ratio
+- Content density
+- Paragraph structure
+- Readability metrics
+- Thin content detection
+
+### Accessibility
+- Image alt text coverage
+- ARIA labels and roles
+- Semantic HTML usage
+- Heading hierarchy
+- Link accessibility
+
+### Page Health Score
+
+A composite score (0-100) based on:
+- SEO optimization
+- Content quality
+- Accessibility compliance
+- Best practice adherence
+
+## Examples
+
+### Basic Page Analysis
+
+```bash
+crawlith page https://example.com/article
+```
+
+### Live Analysis with All Modules
+
+```bash
+crawlith page https://example.com/article --live
+```
+
+### SEO-Only Analysis
+
+```bash
+crawlith page https://example.com/article --seo
+```
+
+Outputs:
+- Title optimization
+- Meta description analysis
+- Structured data validation
+- Link analysis
+
+### Content Quality Check
+
+```bash
+crawlith page https://example.com/article --content
+```
+
+Outputs:
+- Word count
+- Text/HTML ratio
+- Content density
+- Thin content warnings
+
+### Accessibility Audit
+
+```bash
+crawlith page https://example.com/article --accessibility
+```
+
+Outputs:
+- Image alt text coverage
+- ARIA compliance
+- Semantic HTML usage
+
+### JSON Output for CI/CD
+
+```bash
+crawlith page https://example.com/article --format json > analysis.json
+```
+
+### Export Analysis Report
+
+```bash
+crawlith page https://example.com/article --export json,markdown,html
+```
+
+### Batch Analysis Script
+
+```bash
+#!/bin/bash
+for url in $(cat urls.txt); do
+  echo "Analyzing $url..."
+  crawlith page "$url" --live --format json >> batch-analysis.jsonl
+done
+```
+
+### CI/CD Integration
+
+```bash
+# Fail build if page health score is below threshold
+crawlith page https://staging.example.com/new-page --format json | \
+  jq -e '.health_score >= 80' || exit 1
+```
+
+## Output Formats
+
+### Pretty (Default)
+
+```
+🔍 Analyzing https://example.com/article
+
+📊 Page Health Score: 85/100
+
+✅ SEO Signals
+  Title: "Complete Guide to Example" (28 chars) ✓
+  Meta Description: "Learn everything about..." (155 chars) ✓
+  H1: "Complete Guide to Example" ✓
+  Canonical: https://example.com/article ✓
+  Structured Data: 2 schemas found (Article, BreadcrumbList) ✓
+
+📝 Content Analysis
+  Word Count: 1,234 words ✓
+  Text/HTML Ratio: 0.42 ✓
+  Paragraphs: 18
+  
+♿ Accessibility
+  Images: 8 total, 8 with alt text (100%) ✓
+  Headings: Proper hierarchy ✓
+```
+
+### JSON
+
+```json
+{
+  "url": "https://example.com/article",
+  "health_score": 85.3,
+  "title": "Complete Guide to Example",
+  "metaDescription": "Learn everything about...",
+  "h1": "Complete Guide to Example",
+  "content": {
+    "wordCount": 1234,
+    "textHtmlRatio": 0.42,
+    "paragraphs": 18
+  },
+  "links": {
+    "internal": 15,
+    "external": 5,
+    "externalRatio": 0.25
+  },
+  "images": {
+    "total": 8,
+    "withAlt": 8,
+    "withoutAlt": 0
+  },
+  "structuredData": [
+    {
+      "type": "Article",
+      "valid": true
+    }
+  ]
+}
+```
+
+## Use Cases
+
+### Pre-Publish Content Review
+
+```bash
+crawlith page https://staging.example.com/new-article --live --seo
+```
+
+Verify SEO optimization before publishing.
+
+### Content Audit
+
+```bash
+for url in $(cat important-pages.txt); do
+  crawlith page "$url" --format json >> audit-results.jsonl
+done
+```
+
+### Accessibility Compliance
+
+```bash
+crawlith page https://example.com/page --accessibility --format json | \
+  jq '.images.withoutAlt'
+```
+
+### Competitor Analysis
+
+```bash
+crawlith page https://competitor.com/best-article --live --seo
+```
+
+### Performance Monitoring
+
+```bash
+# Daily health score check
+crawlith page https://example.com/landing --live --format json | \
+  jq '{url, score: .health_score, date: now}' >> health-log.jsonl
+```
+
+## Interpretation Guide
+
+### Health Score Ranges
+
+- **90-100**: Excellent - Well-optimized page
+- **75-89**: Good - Minor improvements needed
+- **60-74**: Fair - Several issues to address
+- **Below 60**: Poor - Significant optimization required
+
+### Common Issues
+
+**Low Text/HTML Ratio** (&lt;0.3)
+- Too much markup relative to content
+- Consider reducing boilerplate HTML
+
+**Missing Meta Description**
+- Impacts click-through rates
+- Write unique 150-160 character description
+
+**No Structured Data**
+- Missing rich snippet opportunities
+- Add Schema.org JSON-LD markup
+
+**Images Without Alt Text**
+- Accessibility compliance issue
+- SEO impact for image search
+
+**Thin Content** (&lt;300 words)
+- May be considered low-quality
+- Expand content or consolidate pages
+
+<Note>
+The `page` command can analyze pages from the database (if previously crawled) or fetch live data with `--live`. Live analysis is useful for pages not yet crawled or when you need fresh data.
+</Note>
+
+<Tip>
+Combine with `--export json` for programmatic analysis:
+```bash
+crawlith page https://example.com/page --format json | jq '.health_score'
+```
+</Tip>
+
+<Warning>
+When using `--live`, the page is fetched in real-time, which may be slower than using cached data. Use sparingly for large batch analyses.
+</Warning>
+
+## Related Commands
+
+- [`crawl`](/commands/crawl) - Analyze entire site instead of single page
+- [`probe`](/commands/audit) - Inspect infrastructure and SSL/TLS
+- [`export`](/commands/export) - Export analysis results

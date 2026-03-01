@@ -1,0 +1,349 @@
+---
+title: 'Graph Analysis'
+description: 'PageRank, orphan detection, duplicate detection, and content clustering algorithms'
+---
+
+## Overview
+
+Crawlith treats your website as a directed graph where pages are nodes and links are edges. This enables powerful analysis techniques from graph theory and information retrieval to identify structural issues, content quality problems, and optimization opportunities.
+
+## PageRank
+
+Crawlith implements a production-grade weighted PageRank algorithm to measure page importance:
+
+```typescript
+// From pagerank.ts:13-17
+export function computePageRank(graph: Graph, options: PageRankOptions = {}) {
+  const d = options.dampingFactor ?? 0.85;
+  const maxIterations = options.maxIterations ?? 40;
+  const epsilon = options.convergenceThreshold ?? 1e-5;
+  const soft404Threshold = options.soft404WeightThreshold ?? 0.8;
+```
+
+### How PageRank Works
+
+PageRank distributes "importance" through internal links:
+
+1. **Initialization**: Each eligible page starts with equal rank (1/N)
+2. **Iteration**: Pages distribute their rank to linked pages, weighted by link importance
+3. **Convergence**: The algorithm iterates until rank values stabilize (typically 20-40 iterations)
+
+```typescript
+// From pagerank.ts:84-94
+for (const url of nodeUrls) {
+  let rankFromLinks = 0;
+  const sources = incoming.get(url) || [];
+
+  for (const edge of sources) {
+    const sourceRank = pr.get(edge.source) || 0;
+    const sourceOutWeight = outWeights.get(edge.source) || 1.0;
+    rankFromLinks += sourceRank * (edge.weight / sourceOutWeight);
+  }
+
+  const newRank = baseRank + d * rankFromLinks;
+```
+
+### PageRank Filtering
+
+The algorithm excludes problematic pages:
+
+```typescript
+// From pagerank.ts:23-31
+const eligibleNodes = allNodes.filter(node => {
+  if (node.noindex) return false;
+  if (node.isCollapsed) return false;
+  if (node.soft404Score && node.soft404Score > soft404Threshold) return false;
+  if (node.canonical && node.canonical !== node.url) return false;
+  if (node.status >= 400) return false;
+  if (node.status === 0) return false;
+  return true;
+});
+```
+
+**Why this matters**: Pages with noindex, high soft-404 scores, or error status codes don't contribute to site authority and are excluded from ranking.
+
+### Normalized Scores
+
+PageRank values are normalized to a 0-100 scale for easier interpretation:
+
+```typescript
+// From pagerank.ts:116-124
+for (const node of eligibleNodes) {
+  const rawRank = pr.get(node.url)!;
+  node.pageRank = rawRank;
+
+  if (range > 1e-12) {
+    node.pageRankScore = 100 * (rawRank - minPR) / range;
+  } else {
+    node.pageRankScore = 100;
+  }
+}
+```
+
+## Orphan Detection
+
+Orphans are pages with no incoming internal links (except the homepage):
+
+```typescript
+// From metrics.ts:54-62
+const orphanPages = nodes
+  .filter(n => n.inLinks === 0 && n.depth > 0)
+  .map(n => n.url);
+
+const nearOrphans = nodes
+  .filter(n => n.inLinks === 1 && n.depth >= 3)
+  .map(n => n.url);
+```
+
+### Types of Orphans
+
+| Type | Definition | Impact |
+|------|------------|--------|
+| **True Orphan** | Zero incoming links, depth > 0 | Not discoverable by crawlers |
+| **Near Orphan** | Only 1 incoming link, depth ≥ 3 | Poorly connected, at risk |
+| **Deep Page** | Depth ≥ 4 clicks from homepage | Hard to discover |
+
+### Why Orphans Matter
+
+- **SEO Impact**: Search engines may not discover orphaned pages
+- **User Experience**: Users can't navigate to orphans through normal browsing
+- **Information Architecture**: Orphans suggest structural problems in site navigation
+
+## Duplicate Detection
+
+Crawlith uses content hashing and SimHash to detect duplicate and near-duplicate pages:
+
+### Exact Duplicates
+
+```typescript
+// From duplicate.ts:50-62
+function groupNodesByContentHash(nodes: GraphNode[]): Map<string, GraphNode[]> {
+  const exactMap = new Map<string, GraphNode[]>();
+  for (const node of nodes) {
+    if (!node.contentHash || node.status !== 200) continue;
+    let arr = exactMap.get(node.contentHash);
+    if (!arr) {
+      arr = [];
+      exactMap.set(node.contentHash, arr);
+    }
+    arr.push(node);
+  }
+  return exactMap;
+}
+```
+
+**Exact duplicates** have identical content (same SHA-256 hash). Common causes:
+- Pagination parameters
+- Session IDs in URLs
+- Printer-friendly versions
+- Multiple domains serving the same content
+
+### Near Duplicates (SimHash)
+
+SimHash detects pages with similar but not identical content:
+
+```typescript
+// From duplicate.ts:91-118
+function buildSimHashBuckets(candidates: GraphNode[]) {
+  const n = candidates.length;
+  const simhashes = new BigUint64Array(n);
+  const bandsMaps: Map<number, number[]>[] = Array.from({ length: SimHash.BANDS }, () => new Map());
+
+  for (const idx of validIndices) {
+    const bands = SimHash.getBands(simhashes[idx]);
+    for (let b = 0; b < SimHash.BANDS; b++) {
+      let arr = bandsMaps[b].get(bands[b]);
+      if (!arr) {
+        arr = [];
+        bandsMaps[b].set(bands[b], arr);
+      }
+      arr.push(idx);
+    }
+  }
+}
+```
+
+**Near duplicates** are detected using Hamming distance (default threshold: 3 bits difference):
+- Template-heavy pages (e.g., product listings with different SKUs)
+- Pages with minor content variations
+- Translated or localized versions
+
+### Duplicate Severity
+
+```typescript
+// From duplicate.ts:257-272
+function calculateSeverity(cluster: DuplicateCluster): 'low' | 'medium' | 'high' {
+  const canonicals = new Set<string>();
+  let hasMissing = false;
+
+  for (const n of cluster.nodes) {
+    if (!n.canonical) hasMissing = true;
+    else canonicals.add(n.canonical);
+  }
+
+  if (hasMissing || canonicals.size > 1) {
+    return 'high';  // Conflicting or missing canonicals
+  } else if (cluster.type === 'near') {
+    return 'medium';
+  } else {
+    return 'low';
+  }
+}
+```
+
+- **High**: Missing or conflicting canonical tags
+- **Medium**: Near-duplicates without canonical issues
+- **Low**: Exact duplicates with proper canonical tags
+
+## Content Clustering
+
+Crawlith groups similar pages into content clusters using SimHash:
+
+```typescript
+// From cluster.ts:9-16
+export function detectContentClusters(
+  graph: Graph,
+  threshold: number = 10,
+  minSize: number = 3
+): ClusterInfo[] {
+  const nodes = graph.getNodes().filter(n => n.simhash && n.status === 200);
+  // ...
+}
+```
+
+### Cluster Detection Algorithm
+
+1. **Banding**: Group pages with similar SimHash signatures
+2. **Pairwise comparison**: Calculate Hamming distance between candidates
+3. **Connected components**: Use union-find to identify clusters
+4. **Risk assessment**: Analyze title and H1 overlap
+
+```typescript
+// From cluster.ts:156-220
+function calculateClusterRisk(nodes: GraphNode[]): 'low' | 'medium' | 'high' {
+  const titleCounts = new Map<string, number>();
+  const h1Counts = new Map<string, number>();
+
+  for (const node of nodes) {
+    if (!node.html) continue;
+    const $ = load(node.html);
+    const title = $('title').text().trim().toLowerCase();
+    const h1 = $('h1').first().text().trim().toLowerCase();
+
+    if (title) titleCounts.set(title, (titleCounts.get(title) || 0) + 1);
+    if (h1) h1Counts.set(h1, (h1Counts.get(h1) || 0) + 1);
+  }
+
+  const titleDupeRatio = duplicateTitleCount / nodes.length;
+  const h1DupeRatio = duplicateH1Count / nodes.length;
+
+  if (titleDupeRatio > 0.3 || h1DupeRatio > 0.3) return 'high';
+  if (titleDupeRatio > 0 || h1DupeRatio > 0 || nodes.length > 10) return 'medium';
+  return 'low';
+}
+```
+
+### Cluster Risk Levels
+
+- **High risk**: >30% of pages share titles or H1s (keyword cannibalization)
+- **Medium risk**: Any overlap or very large clusters (&gt;10 pages)
+- **Low risk**: Unique titles/H1s, manageable cluster size
+
+## CLI Usage
+
+### Run Full Analysis
+
+```bash
+# Run crawl with all analysis features
+crawlith crawl https://example.com \
+  --orphans \
+  --orphan-severity \
+  --cluster-threshold 10 \
+  --min-cluster-size 3
+```
+
+### PageRank Analysis
+
+```bash
+# View top pages by PageRank
+crawlith crawl https://example.com --export json
+
+# Export includes topPageRankPages array
+```
+
+### Duplicate Detection
+
+```bash
+# Enable duplicate detection (enabled by default)
+crawlith crawl https://example.com
+
+# Disable duplicate collapsing for PageRank
+crawlith crawl https://example.com --no-collapse
+```
+
+<Info>
+By default, duplicates are collapsed before PageRank calculation to avoid inflating the rank of duplicate content. Use `--no-collapse` to see raw PageRank without collapsing.
+</Info>
+
+### Content Clustering
+
+```bash
+# Adjust clustering sensitivity (default: 10)
+crawlith crawl https://example.com --cluster-threshold 5
+
+# Require larger clusters (default: 3)
+crawlith crawl https://example.com --min-cluster-size 5
+```
+
+**Lower threshold** = more aggressive clustering (more pages grouped together)
+**Higher threshold** = stricter clustering (only very similar pages grouped)
+
+## Interpreting Results
+
+### Graph Metrics
+
+```typescript
+// From metrics.ts:29-124
+export interface Metrics {
+  totalPages: number;
+  totalEdges: number;
+  orphanPages: string[];
+  nearOrphans: string[];
+  deepPages: string[];
+  topAuthorityPages: { url: string; authority: number }[];
+  averageOutDegree: number;
+  maxDepthFound: number;
+  crawlEfficiencyScore: number;  // 1 - (deepPages / totalPages)
+  averageDepth: number;
+  structuralEntropy: number;      // Shannon entropy of link distribution
+  topPageRankPages: { url: string; score: number }[];
+}
+```
+
+### Key Metrics Explained
+
+**Crawl Efficiency Score**: `1 - (deepPages / totalPages)`
+- **High (&gt;0.8)**: Most pages accessible within 3 clicks
+- **Low (&lt;0.5)**: Many pages buried deep in the site
+
+**Structural Entropy**: Shannon entropy of outbound link distribution
+- **Low entropy**: Consistent link patterns (e.g., hub-and-spoke)
+- **High entropy**: Diverse link patterns (may indicate poor IA)
+
+**Authority Score**: Logarithmic normalization of inbound links
+- Based on: `log(1 + inLinks) / log(1 + maxInLinks)`
+- Identifies highly referenced pages
+
+## See Also
+
+<CardGroup cols={2}>
+  <Card title="SEO Analysis" icon="search" href="/features/seo-analysis">
+    Analyze on-page SEO factors like titles, meta descriptions, and structured data
+  </Card>
+  <Card title="Export Data" icon="file-export" href="/features/exports">
+    Export graph analysis results to JSON, CSV, or visualizations
+  </Card>
+  <Card title="Incremental Crawls" icon="rotate" href="/features/incremental-crawls">
+    Compare graphs over time to track structural changes
+  </Card>
+</CardGroup>

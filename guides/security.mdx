@@ -1,0 +1,453 @@
+---
+title: Security
+description: SSRF protection, IP blocking, domain filtering, and proxy support
+---
+
+## Overview
+
+Crawlith implements multiple layers of security to prevent Server-Side Request Forgery (SSRF) attacks, protect internal networks, and ensure safe operation in production environments.
+
+## SSRF Protection
+
+### IP Guard System
+
+The `IPGuard` class (from `ipGuard.ts:9`) prevents requests to internal/private IP addresses:
+
+**Blocked IPv4 Ranges:**
+- `127.0.0.0/8` - Loopback
+- `10.0.0.0/8` - Private network
+- `192.168.0.0/16` - Private network
+- `172.16.0.0/12` - Private network
+- `169.254.0.0/16` - Link-local
+- `0.0.0.0/8` - Unspecified
+
+**Blocked IPv6 Ranges:**
+- `::1` - Loopback
+- `fc00::/7` - Unique Local Address (ULA)
+- `fe80::/10` - Link-local
+- IPv4-mapped IPv6 (e.g., `::ffff:10.0.0.1`)
+
+### Two-Layer IP Validation
+
+From `fetcher.ts:88`:
+
+```typescript
+// 1. Fast fail for IP literals
+if (net.isIP(urlObj.hostname)) {
+    if (IPGuard.isInternal(urlObj.hostname)) {
+        return this.errorResult('blocked_internal_ip', currentUrl, redirectChain)
+    }
+}
+
+// 2. DNS lookup validation (prevents TOCTOU attacks)
+const secureDispatcher = IPGuard.getSecureDispatcher()
+```
+
+**Layer 1**: Immediate blocking of IP literals like `http://127.0.0.1`
+
+**Layer 2**: Custom DNS lookup function validates resolved IPs before connection
+
+From `ipGuard.ts:93`:
+
+```typescript
+static secureLookup(
+    hostname: string,
+    options: dns.LookupOneOptions,
+    callback: (err, address, family) => void
+): void {
+    dns.lookup(hostname, options, (err, address, family) => {
+        if (IPGuard.isInternal(address)) {
+            const blockedError = new Error(`Blocked internal IP: ${address}`)
+            blockedError.code = 'EBLOCKED'
+            return callback(blockedError, address, family)
+        }
+        callback(null, address, family)
+    })
+}
+```
+
+### SSRF Attack Prevention
+
+**Blocked:**
+```bash
+# Direct IP literals
+crawlith crawl http://127.0.0.1:8080
+crawlith crawl http://192.168.1.1
+crawlith crawl http://[::1]:3000
+
+# DNS rebinding attacks
+crawlith crawl http://evil.com  # Resolves to 10.0.0.1
+```
+
+**Result:**
+```
+status: 'blocked_internal_ip'
+```
+
+**Allowed:**
+```bash
+crawlith crawl https://example.com  # Public IP
+```
+
+## Domain Filtering
+
+### Whitelist (Allow List)
+
+Restrict crawling to specific domains:
+
+```bash
+crawlith crawl https://example.com --allow example.com,cdn.example.com
+```
+
+From `domainFilter.ts:29`:
+
+```typescript
+isAllowed(hostname: string): boolean {
+    const normalized = this.normalize(hostname)
+
+    // 1. Deny list match -> Reject
+    if (this.denied.has(normalized)) {
+        return false
+    }
+
+    // 2. Allow list not empty AND no match -> Reject
+    if (this.allowed.size > 0 && !this.allowed.has(normalized)) {
+        return false
+    }
+
+    return true
+}
+```
+
+**Behavior:**
+- If `--allow` is specified, **only** listed domains are crawled
+- All other domains return status: `blocked_by_domain_filter`
+- Useful for restricting crawls to trusted domains
+
+### Blacklist (Deny List)
+
+Exclude specific domains:
+
+```bash
+crawlith crawl https://example.com --deny api.example.com,admin.example.com
+```
+
+**Use cases:**
+- Skip API endpoints
+- Avoid admin panels
+- Exclude third-party tracking domains
+
+### Domain Normalization
+
+Domains are normalized before filtering:
+
+```typescript
+private normalize(hostname: string): string {
+    let h = hostname.toLowerCase().trim()
+    if (h.endsWith('.')) h = h.slice(0, -1)
+    return new URL(`http://${h}`).hostname
+}
+```
+
+**Examples:**
+- `Example.Com` → `example.com`
+- `example.com.` → `example.com`
+- `例え.jp` → `xn--r8jz45g.jp` (Punycode)
+
+## Subdomain Policy
+
+Control whether subdomains are included in the crawl scope.
+
+### Include Subdomains
+
+```bash
+crawlith crawl https://example.com --include-subdomains
+```
+
+From `subdomainPolicy.ts:17`:
+
+```typescript
+isAllowed(hostname: string): boolean {
+    // Exact match always allowed
+    if (target === this.rootHost) return true
+
+    if (!this.includeSubdomains) return false
+
+    // Must end with .rootHost
+    if (!target.endsWith(`.${this.rootHost}`)) return false
+    return true
+}
+```
+
+**Allowed:**
+- `example.com` ✓
+- `www.example.com` ✓
+- `blog.example.com` ✓
+- `api.staging.example.com` ✓
+
+**Blocked:**
+- `notexample.com` ✗
+- `exampleXcom` ✗
+
+### Exclude Subdomains (Default)
+
+```bash
+crawlith crawl https://example.com
+```
+
+**Allowed:**
+- `example.com` ✓
+
+**Blocked:**
+- `www.example.com` → `blocked_subdomain`
+- `blog.example.com` → `blocked_subdomain`
+
+### Subdomain + Whitelist
+
+Combine subdomain policy with explicit whitelist:
+
+```bash
+crawlith crawl https://example.com \
+  --include-subdomains \
+  --allow example.com,cdn.example.net
+```
+
+**Allowed:**
+- `example.com` ✓
+- `www.example.com` ✓ (subdomain)
+- `cdn.example.net` ✓ (explicit whitelist)
+
+**Blocked:**
+- `api.example.net` ✗ (not in whitelist)
+
+## Scope Manager
+
+The `ScopeManager` (from `scopeManager.ts:13`) combines all security policies:
+
+```typescript
+export type EligibilityResult = 
+    | 'allowed' 
+    | 'blocked_by_domain_filter' 
+    | 'blocked_subdomain'
+
+isUrlEligible(url: string): EligibilityResult {
+    // 1. Domain filter check
+    if (!this.domainFilter.isAllowed(hostname)) {
+        return 'blocked_by_domain_filter'
+    }
+
+    // 2. Explicit whitelist bypass
+    if (this.explicitAllowed.has(hostname)) {
+        return 'allowed'
+    }
+
+    // 3. Subdomain policy check
+    if (!this.subdomainPolicy.isAllowed(hostname)) {
+        return 'blocked_subdomain'
+    }
+
+    return 'allowed'
+}
+```
+
+**Evaluation order:**
+1. Denied domains (blacklist) - highest priority
+2. Explicit allowed domains (whitelist)
+3. Subdomain policy
+
+## Redirect Safety
+
+Redirects are validated at each hop:
+
+From `fetcher.ts:158`:
+
+```typescript
+if (status >= 300 && status < 400 && status !== 304) {
+    const location = getHeader('location')
+    if (location) {
+        let targetUrl = new URL(location, currentUrl).toString()
+
+        // Validate redirect target through scope manager
+        const redirectError = redirectController.nextHop(targetUrl)
+        if (redirectError) {
+            return this.errorResult(redirectError, currentUrl, redirectChain)
+        }
+
+        // Continue with redirect...
+    }
+}
+```
+
+**Protection against:**
+- Redirect loops (detected by `RedirectController`)
+- Redirect to internal IPs (validated by `IPGuard`)
+- Redirect to blocked domains (validated by `ScopeManager`)
+- Redirect limit exceeded (default: 2 hops, max: 11)
+
+### Redirect Configuration
+
+```bash
+crawlith crawl https://example.com --max-redirects 5
+```
+
+**Errors:**
+- `redirect_loop` - Circular redirect detected
+- `redirect_limit_exceeded` - Too many redirect hops
+
+From `redirectController.ts:17`:
+
+```typescript
+nextHop(url: string): 'redirect_limit_exceeded' | 'redirect_loop' | null {
+    if (this.history.has(normalized)) return 'redirect_loop'
+    if (this.currentHops >= this.maxHops) return 'redirect_limit_exceeded'
+    this.history.add(normalized)
+    this.currentHops++
+    return null
+}
+```
+
+## Response Size Limiting
+
+Protect against memory exhaustion from large responses:
+
+```bash
+crawlith crawl https://example.com --max-bytes 2000000
+```
+
+From `responseLimiter.ts:4`:
+
+```typescript
+static async streamToString(
+    stream: Readable,
+    maxBytes: number,
+    onOversized?: (bytes: number) => void
+): Promise<string> {
+    let accumulated = 0
+    if (accumulated > maxBytes) {
+        stream.destroy()
+        throw new Error('Oversized response')
+    }
+}
+```
+
+**Default**: `2000000` bytes (2 MB)
+
+**Result for oversized responses:**
+```
+status: 'oversized'
+bytesReceived: 2048576
+```
+
+## Proxy Support
+
+Route requests through a proxy server:
+
+```bash
+crawlith crawl https://example.com --proxy http://proxy.example.com:8080
+
+# With authentication
+crawlith crawl https://example.com --proxy http://user:pass@proxy.example.com:8080
+```
+
+From `proxyAdapter.ts:6`:
+
+```typescript
+constructor(proxyUrl?: string) {
+    if (proxyUrl) {
+        new URL(proxyUrl) // Validate URL
+        this.agent = new ProxyAgent(proxyUrl)
+    }
+}
+```
+
+**Error statuses:**
+- `proxy_connection_failed` - Cannot connect to proxy
+
+**Note**: When using a proxy, SSRF protection still applies to final destinations.
+
+## Security Best Practices
+
+<Accordion title="Should I use --allow or --deny?">
+  **Use `--allow`** (whitelist) when:
+  - Crawling untrusted user-provided URLs
+  - Running in production environments
+  - Security is critical
+
+  **Use `--deny`** (blacklist) when:
+  - You control the start URL
+  - Need to exclude specific subdomains
+  - Flexibility is more important than strict security
+</Accordion>
+
+<Accordion title="Can SSRF protection be disabled?">
+  No. SSRF protection is always active and cannot be disabled. This is a core security feature to prevent attacks on internal networks.
+  
+  If you need to crawl local development servers, use public-facing URLs or deploy Crawlith on the same network segment.
+</Accordion>
+
+<Accordion title="How do I safely crawl multi-domain sites?">
+  Use explicit whitelisting:
+  ```bash
+  crawlith crawl https://example.com \
+    --allow example.com,cdn.example.com,assets.example.net
+  ```
+  
+  This ensures only trusted domains are crawled, even if malicious links are discovered.
+</Accordion>
+
+<Accordion title="What happens when a redirect goes to a blocked domain?">
+  The redirect is blocked and recorded:
+  ```
+  status: 'blocked_by_domain_filter'
+  redirectChain: [{ url: 'https://example.com/page', status: 301, target: 'https://blocked.com' }]
+  ```
+  
+  The source page is recorded with a 301 status, but the target is not fetched.
+</Accordion>
+
+## Security Error Statuses
+
+All security errors are recorded in crawl results:
+
+| Status | Cause | Fix |
+|--------|-------|-----|
+| `blocked_internal_ip` | SSRF protection triggered | Don't crawl internal IPs |
+| `blocked_by_domain_filter` | Failed domain whitelist/blacklist | Update `--allow` or `--deny` |
+| `blocked_subdomain` | Subdomain not allowed | Add `--include-subdomains` |
+| `proxy_connection_failed` | Cannot connect to proxy | Verify proxy URL and credentials |
+| `redirect_loop` | Circular redirect | Check site configuration |
+| `redirect_limit_exceeded` | Too many redirects | Increase `--max-redirects` or fix site |
+| `oversized` | Response exceeds `--max-bytes` | Increase limit or skip large resources |
+
+## Monitoring Security Events
+
+Enable debug logging to see security decisions:
+
+```bash
+crawlith crawl https://example.com \
+  --allow example.com \
+  --log-level debug
+```
+
+Look for:
+- Blocked URLs with reasons
+- Redirect chain validation
+- DNS resolution and IP checks
+
+## Related Topics
+
+- [Configuration](/guides/configuration) - Command-line options
+- [Rate Limiting](/guides/rate-limiting) - Respectful crawling
+- [Troubleshooting](/guides/troubleshooting) - Debugging security blocks
+
+## Technical Details
+
+### Source Files
+
+- `plugins/core/src/core/security/ipGuard.ts` - SSRF protection
+- `plugins/core/src/core/scope/domainFilter.ts` - Whitelist/blacklist
+- `plugins/core/src/core/scope/subdomainPolicy.ts` - Subdomain control
+- `plugins/core/src/core/scope/scopeManager.ts` - Unified scope validation
+- `plugins/core/src/core/network/redirectController.ts` - Redirect safety
+- `plugins/core/src/core/network/responseLimiter.ts` - Response size limiting
+- `plugins/core/src/core/network/proxyAdapter.ts` - Proxy support

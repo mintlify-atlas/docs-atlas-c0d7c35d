@@ -1,80 +1,248 @@
 ---
-title: "Quickstart"
-description: "Start building awesome documentation in minutes"
+title: Quickstart
+description: Crawl your first website and explore results in under 2 minutes
 ---
 
-## Get started in three steps
+## Crawl Your First Site
 
-Get your documentation site running locally and make your first customization.
+Let's crawl a website and generate a full report with link graphs, issue detection, and exports.
 
-### Step 1: Set up your local environment
+<Steps>
+  <Step title="Run a basic crawl">
+    Start by crawling a small site with default settings:
 
-<AccordionGroup>
-  <Accordion icon="copy" title="Clone your docs locally">
-    During the onboarding process, you created a GitHub repository with your docs content if you didn't already have one. You can find a link to this repository in your [dashboard](https://dashboard.mintlify.com).
-    
-    To clone the repository locally so that you can make and preview changes to your docs, follow the [Cloning a repository](https://docs.github.com/en/repositories/creating-and-managing-repositories/cloning-a-repository) guide in the GitHub docs.
-  </Accordion>
-  <Accordion icon="rectangle-terminal" title="Start the preview server">
-    1. Install the Mintlify CLI: `npm i -g mint`
-    2. Navigate to your docs directory and run: `mint dev`
-    3. Open `http://localhost:3000` to see your docs live!
-    
-    <Tip>Your preview updates automatically as you edit files.</Tip>
-  </Accordion>
-</AccordionGroup>
+    ```bash
+    crawlith crawl https://example.com
+    ```
 
-### Step 2: Deploy your changes
+    You'll see real-time progress as Crawlith discovers and fetches pages:
 
-<AccordionGroup>
-  <Accordion icon="github" title="Install our GitHub app">
-    Install the Mintlify GitHub app from your [dashboard](https://dashboard.mintlify.com/settings/organization/github-app).
-    
-    Our GitHub app automatically deploys your changes to your docs site, so you don't need to manage deployments yourself.
-</Accordion>
-<Accordion icon="palette" title="Update your site name and colors">
-    For a first change, let's update the name and colors of your docs site.
+    ```
+    🚀 Starting Crawlith Site Crawler
+    Target: https://example.com
+    Limits: Pages: 500 | Depth: 5
 
-    1. Open `docs.json` in your editor.
-    2. Change the `"name"` field to your project name.
-    3. Update the `"colors"` to match your brand.
-    4. Save and see your changes instantly at `http://localhost:3000`.
+    🔍 Fetching robots.txt... Done
+    📄 Crawling pages... [50/500] [Depth: 2/5]
+    ✅ Crawl complete.
+    🔍 Detecting duplicates... Done
+    🧩 Clustering content... Done
+    📊 Calculating final report metrics... Done
+    ```
+  </Step>
 
-    <Tip>Try changing the primary color to see an immediate difference!</Tip>
-  </Accordion>
-</AccordionGroup>
+  <Step title="Review the results">
+    After the crawl completes, Crawlith displays a comprehensive report:
 
-### Step 3: Go live
+    ```
+    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    📊 Crawl Report for https://example.com
+    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-<Accordion icon="rocket" title="Publish your docs">
-  1. Commit and push your changes.
-  2. Your docs will update and be live in moments!
-</Accordion>
+    📈 Overview
+      Pages Crawled:        247
+      Total Links:          1,234
+      Avg Links/Page:       5.0
+      Max Depth Reached:    4
 
-## Next steps
+    🏥 Health Score: 87.5
 
-Now that you have your docs running, explore these key features:
+    ⚠️  Issues Detected
+      Broken Links:         3
+      Redirect Chains:      2
+      Orphan Pages:         0
+      Soft 404s:            1
+
+    💾 run `crawlith ui` to view the full report
+    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    ```
+  </Step>
+
+  <Step title="Launch the Web Dashboard">
+    For interactive visualization, launch the web UI:
+
+    ```bash
+    crawlith ui
+    ```
+
+    This opens a React-based dashboard in your browser where you can:
+
+    - Browse all crawl snapshots by site
+    - View interactive D3.js link graphs
+    - Drill down into individual pages and their connections
+    - Compare metrics across snapshots
+  </Step>
+</Steps>
+
+## Common Crawl Options
+
+Customize your crawl with these frequently used options:
+
+### Limit Pages and Depth
+
+```bash
+crawlith crawl https://example.com --limit 100 --depth 3
+```
+
+- `--limit`: Maximum number of pages to crawl (default: 500)
+- `--depth`: Maximum click depth from the starting URL (default: 5)
+
+### Enable Issue Detection
+
+```bash
+crawlith crawl https://example.com --detect-soft404 --detect-traps --orphans
+```
+
+- `--detect-soft404`: Identify pages that return 200 but are actually error pages
+- `--detect-traps`: Detect infinite URL parameter spaces (e.g., calendars)
+- `--orphans`: Find pages with no internal links pointing to them
+
+### Export Results
+
+```bash
+crawlith crawl https://example.com --export json,csv,html,visualize
+```
+
+Exports are saved to `./crawlith-reports/<domain>/`:
+
+- **JSON**: Complete graph data with nodes and edges
+- **CSV**: Tabular page data for spreadsheet analysis
+- **HTML**: Standalone HTML report
+- **Visualize**: Interactive D3.js link graph
+
+<Tip>
+  Use `--output <path>` to customize the export directory:
+  
+  ```bash
+  crawlith crawl https://example.com --export json --output ./reports
+  ```
+</Tip>
+
+## Analyze a Single Page
+
+For quick on-page SEO analysis without a full crawl:
+
+```bash
+crawlith page https://example.com/about
+```
+
+This analyzes the page from your local crawl database. Add `--live` to fetch fresh data:
+
+```bash
+crawlith page https://example.com/about --live
+```
+
+Output includes:
+
+```
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📄 Page Analysis: https://example.com/about
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+🏥 Health Score: 92.3
+
+📝 SEO Signals
+  Title:              About Us - Example Corp (25 chars) ✓
+  Meta Description:   Learn about our mission... (145 chars) ✓
+  H1 Count:           1 ✓
+  Canonical:          https://example.com/about
+  Indexable:          Yes
+
+📊 Content Analysis
+  Word Count:         847
+  Unique Sentences:   42
+  Text/HTML Ratio:    0.65
+  Thin Content Score: 15 (Good)
+
+🔗 Link Analysis
+  Internal Links:     12
+  External Links:     3
+  External Ratio:     20.0%
+
+♿ Accessibility
+  Total Images:       5
+  Missing Alt Text:   0 ✓
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+```
+
+## Incremental Crawling
+
+For large sites, use incremental crawling to re-crawl efficiently:
+
+```bash
+crawlith crawl https://example.com --incremental
+```
+
+This uses ETag and Last-Modified headers from the previous snapshot to skip unchanged pages, dramatically reducing crawl time.
+
+## Infrastructure Auditing
+
+Run deep infrastructure checks:
+
+```bash
+crawlith audit https://example.com
+```
+
+This performs:
+
+- **TLS Analysis**: Certificate validity, protocol versions, cipher suites
+- **DNS Checks**: Resolution time, record types, DNSSEC
+- **Security Headers**: HSTS, CSP, X-Frame-Options, etc.
+- **Transport Analysis**: HTTP/2 support, compression, response times
+
+Example output:
+
+```
+🔒 TLS Certificate
+  Valid:              Yes ✓
+  Issuer:             Let's Encrypt
+  Expires:            2026-05-15
+  Protocol:           TLSv1.3 ✓
+
+🛡️  Security Headers
+  Strict-Transport-Security: max-age=31536000 ✓
+  Content-Security-Policy:   Present ✓
+  X-Frame-Options:           DENY ✓
+  X-Content-Type-Options:    nosniff ✓
+
+📡 DNS Performance
+  Resolution Time:    23ms ✓
+  IPv6 Support:       Yes
+```
+
+## Next Steps
 
 <CardGroup cols={2}>
-
-<Card title="Write Content" icon="pen-to-square" href="/essentials/markdown">
-  Learn MDX syntax and start writing your documentation.
-</Card>
-
-<Card title="Customize style" icon="palette" href="/essentials/settings">
-  Make your docs match your brand perfectly.
-</Card>
-
-<Card title="Add code examples" icon="square-code" href="/essentials/code">
-  Include syntax-highlighted code blocks.
-</Card>
-
-<Card title="API documentation" icon="code" href="/api-reference/introduction">
-  Auto-generate API docs from OpenAPI specs.
-</Card>
-
+  <Card
+    title="CLI Reference"
+    icon="terminal"
+    href="/cli/crawl"
+  >
+    Explore all crawl options and advanced flags
+  </Card>
+  <Card
+    title="Page Analysis"
+    icon="magnifying-glass"
+    href="/cli/page"
+  >
+    Deep dive into on-page SEO analysis features
+  </Card>
+  <Card
+    title="Web Dashboard"
+    icon="browser"
+    href="/cli/ui"
+  >
+    Learn how to navigate the interactive UI
+  </Card>
+  <Card
+    title="Export Formats"
+    icon="file-export"
+    href="/guides/exports"
+  >
+    Understand all available export options
+  </Card>
 </CardGroup>
 
 <Note>
-  **Need help?** See our [full documentation](https://mintlify.com/docs) or join our [community](https://mintlify.com/community).
+  All crawl data is persisted in `~/.crawlith/crawlith.db`. Use `crawlith sites` to list all tracked sites and `crawlith clean` to remove old snapshots.
 </Note>

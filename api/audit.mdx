@@ -1,0 +1,444 @@
+---
+title: Audit API
+description: Perform security and performance audits on individual URLs
+---
+
+## auditUrl()
+
+Performs a comprehensive audit of a URL, analyzing TLS/SSL, HTTP headers, DNS, and performance.
+
+```typescript
+async function auditUrl(
+  url: string, 
+  options?: AuditOptions
+): Promise<AuditResult>
+```
+
+<ParamField path="url" type="string" required>
+  The URL to audit. Must be a valid HTTP or HTTPS URL.
+</ParamField>
+
+<ParamField path="options" type="AuditOptions">
+  Optional configuration for the audit. See [AuditOptions](#auditoptions) below.
+</ParamField>
+
+<ResponseField name="result" type="AuditResult">
+  Complete audit results including security, performance, and DNS analysis. See [AuditResult](#auditresult).
+</ResponseField>
+
+### Example
+
+```typescript
+import { auditUrl } from '@crawlith/core';
+
+const result = await auditUrl('https://example.com');
+
+console.log('Grade:', result.grade);
+console.log('Score:', result.score);
+console.log('TLS Version:', result.transport.tlsVersion);
+console.log('HTTPS:', result.transport.certificate ? 'Yes' : 'No');
+```
+
+## AuditOptions
+
+Configuration options for the audit:
+
+```typescript
+interface AuditOptions {
+  timeout?: number;   // Request timeout in milliseconds (default: 10000)
+  verbose?: boolean;  // Enable verbose logging
+  debug?: boolean;    // Enable debug output
+}
+```
+
+<ParamField path="timeout" type="number" default="10000">
+  Maximum time to wait for the request in milliseconds.
+  
+  ```typescript
+  await auditUrl('https://example.com', { timeout: 5000 });
+  ```
+</ParamField>
+
+<ParamField path="verbose" type="boolean" default="false">
+  Enable verbose logging output.
+</ParamField>
+
+<ParamField path="debug" type="boolean" default="false">
+  Enable debug mode with detailed output.
+</ParamField>
+
+## AuditResult
+
+Comprehensive audit results:
+
+```typescript
+interface AuditResult {
+  url: string;
+  transport: TransportDiagnostics;
+  securityHeaders: SecurityHeadersResult;
+  dns: DnsDiagnostics;
+  performance: PerformanceMetrics;
+  score: number;  // 0-100
+  grade: 'A' | 'B' | 'C' | 'D' | 'F';
+  issues: AuditIssue[];
+}
+```
+
+### Complete Example
+
+```typescript
+import { auditUrl } from '@crawlith/core';
+
+const result = await auditUrl('https://example.com');
+
+console.log('=== Audit Result ===');
+console.log(`URL: ${result.url}`);
+console.log(`Score: ${result.score}/100`);
+console.log(`Grade: ${result.grade}\n`);
+
+console.log('Transport:');
+console.log(`  TLS: ${result.transport.tlsVersion}`);
+console.log(`  Cipher: ${result.transport.cipherSuite}`);
+console.log(`  HTTP: ${result.transport.httpVersion}`);
+console.log(`  ALPN: ${result.transport.alpnProtocol}\n`);
+
+console.log('Performance:');
+console.log(`  DNS: ${result.performance.dnsLookupTime}ms`);
+console.log(`  Connect: ${result.performance.tcpConnectTime}ms`);
+console.log(`  TLS: ${result.performance.tlsHandshakeTime}ms`);
+console.log(`  TTFB: ${result.performance.ttfb}ms`);
+console.log(`  Total: ${result.performance.totalTime}ms\n`);
+
+if (result.issues.length > 0) {
+  console.log('Issues:');
+  result.issues.forEach(issue => {
+    console.log(`  [${issue.severity}] ${issue.message}`);
+  });
+}
+```
+
+## Transport Diagnostics
+
+TLS/SSL and HTTP protocol information:
+
+```typescript
+interface TransportDiagnostics {
+  // TLS / SSL
+  tlsVersion: string | null;         // e.g., "TLSv1.3"
+  cipherSuite: string | null;        // e.g., "TLS_AES_128_GCM_SHA256"
+  alpnProtocol: string | null;       // "http/1.1" or "h2"
+  certificate: CertificateInfo | null;
+  
+  // HTTP Protocol
+  httpVersion: string;               // e.g., "1.1" or "2"
+  compression: string[];             // ["gzip", "br"]
+  keepAlive: boolean;
+  transferEncoding: string | null;
+  
+  // Redirects
+  redirectCount: number;
+  redirects: RedirectInfo[];
+  
+  // Metadata
+  serverHeader: string | null;
+  headers: Record<string, string | string[] | undefined>;
+}
+```
+
+### Certificate Information
+
+```typescript
+interface CertificateInfo {
+  issuer: string;
+  subject: string;
+  validFrom: string;
+  validTo: string;
+  daysUntilExpiry: number;
+  isSelfSigned: boolean;
+  isValidChain: boolean;
+  fingerprint: string;
+  serialNumber: string;
+  subjectAltName?: string;
+}
+```
+
+### Example: Check Certificate
+
+```typescript
+const result = await auditUrl('https://example.com');
+const cert = result.transport.certificate;
+
+if (cert) {
+  console.log('Certificate:');
+  console.log(`  Issuer: ${cert.issuer}`);
+  console.log(`  Valid: ${cert.validFrom} to ${cert.validTo}`);
+  console.log(`  Days until expiry: ${cert.daysUntilExpiry}`);
+  console.log(`  Self-signed: ${cert.isSelfSigned}`);
+  
+  if (cert.daysUntilExpiry < 30) {
+    console.warn('⚠️  Certificate expires soon!');
+  }
+}
+```
+
+## Security Headers
+
+Analysis of HTTP security headers:
+
+```typescript
+interface SecurityHeadersResult {
+  strictTransportSecurity: HeaderStatus;
+  contentSecurityPolicy: HeaderStatus;
+  xFrameOptions: HeaderStatus;
+  xContentTypeOptions: HeaderStatus;
+  referrerPolicy: HeaderStatus;
+  permissionsPolicy: HeaderStatus;
+  
+  details: Record<string, string>;
+  score: number;  // 0-100
+}
+
+interface HeaderStatus {
+  present: boolean;
+  value: string | null;
+  valid: boolean;
+  issues?: string[];
+}
+```
+
+### Example: Check Security Headers
+
+```typescript
+const result = await auditUrl('https://example.com');
+const headers = result.securityHeaders;
+
+console.log('Security Headers:');
+
+if (!headers.strictTransportSecurity.present) {
+  console.log('⚠️  Missing HSTS header');
+}
+
+if (!headers.contentSecurityPolicy.present) {
+  console.log('⚠️  Missing CSP header');
+}
+
+if (!headers.xFrameOptions.present) {
+  console.log('⚠️  Missing X-Frame-Options header');
+}
+
+console.log(`\nSecurity score: ${headers.score}/100`);
+```
+
+## DNS Diagnostics
+
+DNS resolution and configuration analysis:
+
+```typescript
+interface DnsDiagnostics {
+  a: string[];           // IPv4 addresses
+  aaaa: string[];        // IPv6 addresses
+  cname: string[];       // CNAME records
+  reverse: string[];     // PTR records
+  ipCount: number;
+  ipv6Support: boolean;
+  resolutionTime: number; // milliseconds
+}
+```
+
+### Example: Check DNS
+
+```typescript
+const result = await auditUrl('https://example.com');
+const dns = result.dns;
+
+console.log('DNS:');
+console.log(`  IPv4 addresses: ${dns.a.join(', ')}`);
+console.log(`  IPv6 addresses: ${dns.aaaa.join(', ')}`);
+console.log(`  IPv6 support: ${dns.ipv6Support ? 'Yes' : 'No'}`);
+console.log(`  Resolution time: ${dns.resolutionTime}ms`);
+
+if (dns.cname.length > 0) {
+  console.log(`  CNAME: ${dns.cname.join(' → ')}`);
+}
+```
+
+## Performance Metrics
+
+Detailed timing breakdown:
+
+```typescript
+interface PerformanceMetrics {
+  dnsLookupTime: number;     // DNS resolution time (ms)
+  tcpConnectTime: number;    // TCP connection time (ms)
+  tlsHandshakeTime: number;  // TLS handshake time (ms)
+  ttfb: number;              // Time to first byte (ms)
+  totalTime: number;         // Total request time (ms)
+  htmlSize: number;          // Response body size (bytes)
+  headerSize: number;        // Response headers size (bytes)
+  redirectTime?: number;     // Time spent in redirects (ms)
+}
+```
+
+### Example: Performance Analysis
+
+```typescript
+const result = await auditUrl('https://example.com');
+const perf = result.performance;
+
+console.log('Performance Breakdown:');
+console.log(`  DNS Lookup:    ${perf.dnsLookupTime}ms`);
+console.log(`  TCP Connect:   ${perf.tcpConnectTime}ms`);
+console.log(`  TLS Handshake: ${perf.tlsHandshakeTime}ms`);
+console.log(`  TTFB:          ${perf.ttfb}ms`);
+console.log(`  Total:         ${perf.totalTime}ms\n`);
+
+console.log(`HTML Size: ${(perf.htmlSize / 1024).toFixed(2)} KB`);
+
+if (perf.ttfb > 1000) {
+  console.warn('⚠️  Slow TTFB (&gt;1s)');
+}
+```
+
+## Audit Issues
+
+Detailed issues found during the audit:
+
+```typescript
+interface AuditIssue {
+  id: string;        // Unique issue code
+  severity: 'critical' | 'severe' | 'moderate' | 'minor' | 'info';
+  category: 'tls' | 'http' | 'headers' | 'dns' | 'performance';
+  message: string;
+  scorePenalty: number;
+}
+```
+
+### Example: Handle Issues
+
+```typescript
+const result = await auditUrl('https://example.com');
+
+const critical = result.issues.filter(i => i.severity === 'critical');
+const severe = result.issues.filter(i => i.severity === 'severe');
+
+if (critical.length > 0) {
+  console.error('Critical Issues:');
+  critical.forEach(issue => {
+    console.error(`  - ${issue.message} (penalty: ${issue.scorePenalty})`);
+  });
+}
+
+if (severe.length > 0) {
+  console.warn('Severe Issues:');
+  severe.forEach(issue => {
+    console.warn(`  - ${issue.message}`);
+  });
+}
+
+// Filter by category
+const tlsIssues = result.issues.filter(i => i.category === 'tls');
+const headerIssues = result.issues.filter(i => i.category === 'headers');
+```
+
+## Grade Calculation
+
+The audit assigns a letter grade based on the score:
+
+- **A**: 90-100 points
+- **B**: 80-89 points
+- **C**: 70-79 points
+- **D**: 60-69 points
+- **F**: 0-59 points
+
+```typescript
+const result = await auditUrl('https://example.com');
+
+switch (result.grade) {
+  case 'A':
+    console.log('✅ Excellent security and performance');
+    break;
+  case 'B':
+    console.log('👍 Good, with room for improvement');
+    break;
+  case 'C':
+    console.log('⚠️  Acceptable, but has issues');
+    break;
+  case 'D':
+    console.log('⚠️  Poor, needs attention');
+    break;
+  case 'F':
+    console.log('❌ Failing, critical issues present');
+    break;
+}
+```
+
+## Redirect Analysis
+
+Examine redirect chains:
+
+```typescript
+interface RedirectInfo {
+  url: string;
+  statusCode: number;  // 301, 302, 307, 308
+  location: string | null;
+}
+
+const result = await auditUrl('http://example.com');
+
+if (result.transport.redirectCount > 0) {
+  console.log(`Redirect chain (${result.transport.redirectCount} hops):`);
+  
+  result.transport.redirects.forEach((redirect, i) => {
+    console.log(`  ${i + 1}. [${redirect.statusCode}] ${redirect.url}`);
+    console.log(`     → ${redirect.location}`);
+  });
+}
+```
+
+## Batch Auditing
+
+Audit multiple URLs:
+
+```typescript
+import { auditUrl } from '@crawlith/core';
+
+const urls = [
+  'https://example.com',
+  'https://example.com/about',
+  'https://example.com/contact'
+];
+
+const results = await Promise.all(
+  urls.map(url => auditUrl(url))
+);
+
+results.forEach(result => {
+  console.log(`${result.url}: ${result.grade} (${result.score})`);
+});
+
+// Calculate average score
+const avgScore = results.reduce((sum, r) => sum + r.score, 0) / results.length;
+console.log(`\nAverage score: ${avgScore.toFixed(1)}`);
+```
+
+## Error Handling
+
+The audit function validates URLs and protects against SSRF:
+
+```typescript
+import { auditUrl } from '@crawlith/core';
+
+try {
+  const result = await auditUrl('http://localhost:3000');
+} catch (error) {
+  if (error.message.includes('internal or private')) {
+    console.error('Cannot audit internal/private infrastructure');
+  } else if (error.message.includes('Invalid URL')) {
+    console.error('Invalid URL format');
+  } else if (error.message.includes('Only HTTP and HTTPS')) {
+    console.error('Only HTTP/HTTPS protocols are supported');
+  } else {
+    console.error('Audit failed:', error.message);
+  }
+}
+```

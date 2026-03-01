@@ -1,0 +1,440 @@
+---
+title: 'Data Exports'
+description: 'Export crawl results to JSON, CSV, Markdown, HTML, and interactive visualizations'
+---
+
+## Overview
+
+Crawlith supports multiple export formats to integrate with your workflow, whether you need structured data for analysis, reports for stakeholders, or interactive visualizations for exploration.
+
+## Export Formats
+
+### JSON
+
+Export complete graph data with all metrics and metadata:
+
+```bash
+crawlith crawl https://example.com --export json
+```
+
+Produces `graph.json` with the complete graph structure:
+
+```json
+{
+  "nodes": [
+    {
+      "url": "https://example.com/",
+      "depth": 0,
+      "status": 200,
+      "inLinks": 5,
+      "outLinks": 12,
+      "pageRank": 0.0234,
+      "pageRankScore": 87.3,
+      "canonical": "https://example.com/",
+      "contentHash": "sha256:abc123...",
+      "simhash": "18446744073709551615",
+      "wordCount": 850,
+      "thinContentScore": 15.2,
+      "duplicateClusterId": null,
+      "clusterId": null,
+      "brokenLinks": []
+    }
+  ],
+  "edges": [
+    {
+      "source": "https://example.com/",
+      "target": "https://example.com/about",
+      "weight": 1.0
+    }
+  ],
+  "duplicateClusters": [],
+  "contentClusters": [],
+  "limitReached": false,
+  "sessionStats": {
+    "pagesFetched": 247,
+    "pagesCached": 0,
+    "pagesSkipped": 3,
+    "totalFound": 250
+  }
+}
+```
+
+**Use cases**:
+- Import into data analysis tools (Python, R)
+- Feed into custom dashboards
+- Store for historical comparison
+- Process with jq or other JSON tools
+
+### CSV
+
+Export graph data as spreadsheet-friendly CSV files:
+
+```bash
+crawlith crawl https://example.com --export csv
+```
+
+Produces two files:
+
+**nodes.csv**:
+```csv
+URL,Depth,Status,InboundLinks,OutboundLinks,PageRankScore
+https://example.com/,0,200,5,12,87.300
+https://example.com/about,1,200,3,8,72.450
+```
+
+**edges.csv**:
+```csv
+Source,Target,Weight
+https://example.com/,https://example.com/about,1.0
+https://example.com/,https://example.com/contact,1.0
+```
+
+**From the code**:
+```typescript
+// From crawlExport.ts:1-16
+export function renderCrawlCsvNodes(graphData: any): string {
+  const nodeHeaders = ['URL', 'Depth', 'Status', 'InboundLinks', 'OutboundLinks', 'PageRankScore'];
+  const nodeRows = graphData.nodes.map((n: any) => {
+    const outbound = graphData.edges.filter((e: any) => e.source === n.url).length;
+    const inbound = graphData.edges.filter((e: any) => e.target === n.url).length;
+    const statusStr = n.status === 0 ? 'Pending/Limit' : n.status;
+    return [n.url, n.depth, statusStr, inbound, outbound, (n.pageRankScore || 0).toFixed(3)].join(',');
+  });
+  return [nodeHeaders.join(','), ...nodeRows].join('\n');
+}
+
+export function renderCrawlCsvEdges(graphData: any): string {
+  const edgeHeaders = ['Source', 'Target', 'Weight'];
+  const edgeRows = graphData.edges.map((e: any) => [e.source, e.target, e.weight].join(','));
+  return [edgeHeaders.join(','), ...edgeRows].join('\n');
+}
+```
+
+**Use cases**:
+- Import into Excel or Google Sheets
+- Create pivot tables and charts
+- Share with non-technical stakeholders
+- Quick data exploration
+
+### Markdown
+
+Generate human-readable Markdown reports:
+
+```bash
+crawlith crawl https://example.com --export markdown
+```
+
+Produces `summary.md`:
+
+```markdown
+# Crawlith Crawl Summary - https://example.com
+
+## 📊 Metrics
+- Total Pages Discovered: 250
+- Session Pages Crawled: 247
+- Total Edges: 1,234
+- Avg Depth: 2.34
+- Max Depth: 5
+- Crawl Efficiency: 92.3%
+
+## 📄 Top Pages (by In-degree)
+| URL | Inbound | Status |
+| :--- | :--- | :--- |
+| https://example.com/ | 45 | 200 |
+| https://example.com/products | 23 | 200 |
+| https://example.com/about | 18 | 200 |
+
+## 🏆 Top PageRank Pages
+| URL | Score |
+| :--- | :--- |
+| https://example.com/ | 87.300/100 |
+| https://example.com/products | 72.450/100 |
+```
+
+**From the code**:
+```typescript
+// From crawlExport.ts:18-58
+export function renderCrawlMarkdown(url: string, graphData: any, metrics: any, graph: any): string {
+  const md = [
+    `# Crawlith Crawl Summary - ${url}`,
+    '',
+    `## 📊 Metrics`,
+    `- Total Pages Discovered: ${metrics.totalPages}`,
+    `- Session Pages Crawled: ${graph.sessionStats?.pagesFetched ?? 0}`,
+    `- Total Edges: ${metrics.totalEdges}`,
+    `- Avg Depth: ${metrics.averageDepth.toFixed(2)}`,
+    `- Max Depth: ${metrics.maxDepthFound}`,
+    `- Crawl Efficiency: ${(metrics.crawlEfficiencyScore * 100).toFixed(1)}%`,
+  ];
+  // ...
+}
+```
+
+**Use cases**:
+- Include in GitHub repositories (commit as documentation)
+- Convert to PDF for client reports
+- Embed in Notion, Confluence, or other wikis
+- Quick overview without opening specialized tools
+
+### HTML
+
+Generate standalone HTML reports with embedded data:
+
+```bash
+crawlith crawl https://example.com --export html
+```
+
+Produces `report.html` with:
+- Complete graph visualization (interactive)
+- Metrics dashboard
+- Filterable tables
+- No external dependencies (works offline)
+
+**From the code**:
+```typescript
+// From html.ts:8-27
+export function generateHtml(graphData: any, metrics: Metrics): string {
+  // Strip heavy HTML content from nodes to keep the report lightweight
+  const vizGraphData = {
+    ...graphData,
+    nodes: graphData.nodes ? graphData.nodes.map((n: any) => {
+      const { html, ...rest } = n;
+      return rest;
+    }) : []
+  };
+
+  const graphJson = safeJson(vizGraphData);
+  const metricsJson = safeJson(metrics);
+
+  return Crawl_HTML.replace('</body>', `<script>
+    window.GRAPH_DATA = ${graphJson};
+    window.METRICS_DATA = ${metricsJson};
+  </script>
+  </body>`);
+}
+```
+
+**Features**:
+- Self-contained (no server required)
+- Interactive graph visualization
+- Filter nodes by status, depth, or PageRank
+- Click nodes to see details
+- Export subgraphs
+
+**Use cases**:
+- Share reports via email
+- Host on internal wikis or intranets
+- Archive crawl results
+- Present findings in meetings
+
+### Visualize
+
+Export formats optimized for visualization tools:
+
+```bash
+crawlith crawl https://example.com --export visualize
+```
+
+Produces multiple formats:
+- **Graphviz DOT**: For rendering with Graphviz
+- **GEXF**: For Gephi network analysis
+- **D3.js JSON**: For custom D3 visualizations
+
+**Use cases**:
+- Create custom network diagrams
+- Perform advanced graph analysis in Gephi
+- Build interactive visualizations
+- Generate site architecture diagrams
+
+## CLI Usage
+
+### Export During Crawl
+
+```bash
+# Single format
+crawlith crawl https://example.com --export json
+
+# Multiple formats (comma-separated)
+crawlith crawl https://example.com --export json,csv,markdown,html
+
+# All formats
+crawlith crawl https://example.com --export json,csv,markdown,html,visualize
+```
+
+### Export from Existing Snapshot
+
+```bash
+# Export latest completed snapshot
+crawlith export https://example.com --export json,html
+
+# Custom output directory
+crawlith export https://example.com --export json --output ./reports
+```
+
+**From the code**:
+```typescript
+// From export.ts:13-24
+export const exportCmd = new Command('export')
+  .description('Export latest snapshot data for a site')
+  .argument('[url]', 'URL or domain of the site')
+  .option('-o, --output <path>', 'Output directory', './crawlith-reports')
+  .option('--export [formats]', 'Export formats (comma-separated)', 'json')
+  .action(async (url, options) => {
+    // Load snapshot from database
+    const graph = loadGraphFromSnapshot(snapshot.id);
+    const metrics = calculateMetrics(graph, maxDepth);
+    
+    // Export to specified formats
+    await runCrawlExports(exportFormats, outputDir, url, graph.toJSON(), metrics, graph);
+  });
+```
+
+### Output Location
+
+By default, exports are saved to:
+```
+./crawlith-reports/{domain}/
+  ├── graph.json
+  ├── nodes.csv
+  ├── edges.csv
+  ├── summary.md
+  ├── report.html
+  └── graph.dot
+```
+
+Customize the output directory:
+```bash
+crawlith crawl https://example.com --export json --output /path/to/reports
+```
+
+## Export Filtering
+
+Export data is automatically filtered to include only relevant information:
+
+```typescript
+// HTML exports strip page HTML to reduce file size
+const vizGraphData = {
+  ...graphData,
+  nodes: graphData.nodes.map((n: any) => {
+    const { html, ...rest } = n;  // Remove HTML content
+    return rest;
+  })
+};
+```
+
+**Why this matters**: Full HTML for each page can make export files very large (100MB+). Stripped exports focus on metrics and structure.
+
+<Info>
+If you need the full HTML content, use the JSON export and access the database directly, or query specific pages using the `crawlith page` command.
+</Info>
+
+## Advanced Use Cases
+
+### Automated Reporting
+
+Combine exports with CI/CD:
+
+```bash
+#!/bin/bash
+# Daily crawl and report generation
+crawlith crawl https://example.com --export json,html,markdown
+
+# Upload to S3 for team access
+aws s3 sync ./crawlith-reports/ s3://my-bucket/crawl-reports/$(date +%Y-%m-%d)/
+
+# Send Markdown report via Slack
+curl -X POST -H 'Content-type: application/json' \
+  --data "{\"text\": \"$(cat ./crawlith-reports/example.com/summary.md)\"}" \
+  $SLACK_WEBHOOK_URL
+```
+
+### Diff Analysis
+
+Compare exports over time:
+
+```bash
+# Crawl and export weekly
+crawlith crawl https://example.com --export json --output ./reports/week1
+crawlith crawl https://example.com --export json --output ./reports/week2
+
+# Compare graphs
+crawlith crawl --compare ./reports/week1/graph.json ./reports/week2/graph.json
+```
+
+### Custom Processing
+
+Process JSON exports with jq:
+
+```bash
+# Find all 404 pages
+jq -r '.nodes[] | select(.status == 404) | .url' graph.json
+
+# List pages with low PageRank
+jq -r '.nodes[] | select(.pageRankScore < 20) | "\(.url): \(.pageRankScore)"' graph.json
+
+# Count pages by depth
+jq -r '.nodes | group_by(.depth) | .[] | "Depth \(.[0].depth): \(length) pages"' graph.json
+
+# Find orphan pages (depth > 0, inLinks = 0)
+jq -r '.nodes[] | select(.depth > 0 and .inLinks == 0) | .url' graph.json
+```
+
+### Python Analysis
+
+```python
+import json
+import pandas as pd
+
+# Load graph data
+with open('graph.json') as f:
+    data = json.load(f)
+
+# Convert to DataFrame
+df = pd.DataFrame(data['nodes'])
+
+# Analyze
+print(f"Total pages: {len(df)}")
+print(f"Average PageRank: {df['pageRankScore'].mean():.2f}")
+print(f"Pages with thin content: {len(df[df['thinContentScore'] > 50])}")
+
+# Find high-value pages (high PageRank, low depth)
+high_value = df[(df['pageRankScore'] > 70) & (df['depth'] <= 2)]
+print(f"High-value pages: {len(high_value)}")
+print(high_value[['url', 'pageRankScore', 'depth']].head())
+```
+
+## Export Reference
+
+### Supported Formats
+
+| Format | Extension | Size | Use Case |
+|--------|-----------|------|----------|
+| JSON | `.json` | Large | Programmatic analysis, archival |
+| CSV | `.csv` | Medium | Spreadsheets, SQL import |
+| Markdown | `.md` | Small | Documentation, reports |
+| HTML | `.html` | Medium | Interactive viewing, sharing |
+| Graphviz | `.dot` | Small | Network diagrams |
+
+### Data Completeness
+
+| Format | Nodes | Edges | Metrics | HTML Content |
+|--------|-------|-------|---------|-------------|
+| JSON | ✓ Full | ✓ Full | ✓ Full | ✓ Full |
+| CSV | ✓ Summary | ✓ Full | ✗ | ✗ |
+| Markdown | ✓ Top 10 | ✗ | ✓ Summary | ✗ |
+| HTML | ✓ Full | ✓ Full | ✓ Full | ✗ Stripped |
+| Graphviz | ✓ Full | ✓ Full | ✗ | ✗ |
+
+## See Also
+
+<CardGroup cols={2}>
+  <Card title="Graph Analysis" icon="chart-network" href="/features/graph-analysis">
+    Understand the metrics included in exports
+  </Card>
+  <Card title="Incremental Crawls" icon="rotate" href="/features/incremental-crawls">
+    Compare exported snapshots over time
+  </Card>
+  <Card title="CLI Reference" icon="terminal" href="/cli/crawl">
+    Complete CLI documentation for export options
+  </Card>
+</CardGroup>

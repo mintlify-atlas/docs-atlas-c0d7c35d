@@ -1,0 +1,357 @@
+---
+title: Crawler API
+description: Start crawls and configure crawler behavior
+---
+
+## crawl()
+
+The main entry point for starting a crawl. Returns a snapshot ID that can be used to load results.
+
+```typescript
+function crawl(
+  startUrl: string, 
+  options: CrawlOptions, 
+  context?: EngineContext
+): Promise<number>
+```
+
+<ParamField path="startUrl" type="string" required>
+  The URL to start crawling from. Must be a valid HTTP or HTTPS URL.
+</ParamField>
+
+<ParamField path="options" type="CrawlOptions" required>
+  Configuration object controlling crawler behavior. See [CrawlOptions](#crawloptions) below.
+</ParamField>
+
+<ParamField path="context" type="EngineContext">
+  Optional event context for monitoring crawl progress. Provides an `emit` function for receiving events.
+</ParamField>
+
+<ResponseField name="snapshotId" type="number">
+  A unique identifier for this crawl snapshot. Use it to load the graph and metrics later.
+</ResponseField>
+
+### Example
+
+```typescript
+import { crawl } from '@crawlith/core';
+
+const snapshotId = await crawl('https://example.com', {
+  limit: 100,
+  depth: 3,
+  concurrency: 5,
+  detectSoft404: true
+});
+
+console.log('Snapshot ID:', snapshotId);
+```
+
+## CrawlOptions
+
+Configuration interface for controlling crawler behavior.
+
+```typescript
+interface CrawlOptions {
+  limit: number;
+  depth: number;
+  concurrency?: number;
+  ignoreRobots?: boolean;
+  stripQuery?: boolean;
+  previousGraph?: Graph;
+  sitemap?: string;
+  debug?: boolean;
+  detectSoft404?: boolean;
+  detectTraps?: boolean;
+  rate?: number;
+  maxBytes?: number;
+  allowedDomains?: string[];
+  deniedDomains?: string[];
+  includeSubdomains?: boolean;
+  proxyUrl?: string;
+  maxRedirects?: number;
+  userAgent?: string;
+  snapshotType?: 'full' | 'partial' | 'incremental';
+}
+```
+
+### Required Options
+
+<ParamField path="limit" type="number" required>
+  Maximum number of pages to crawl. Once this limit is reached, the crawler stops.
+  
+  ```typescript
+  { limit: 500 }
+  ```
+</ParamField>
+
+<ParamField path="depth" type="number" required>
+  Maximum depth to crawl from the start URL. Pages beyond this depth are not fetched.
+  
+  ```typescript
+  { depth: 4 }
+  ```
+</ParamField>
+
+### Concurrency & Rate Limiting
+
+<ParamField path="concurrency" type="number" default="2">
+  Number of concurrent requests. Maximum is 10 for safety.
+  
+  ```typescript
+  { concurrency: 5 }
+  ```
+</ParamField>
+
+<ParamField path="rate" type="number">
+  Minimum delay in milliseconds between requests to the same domain.
+  
+  ```typescript
+  { rate: 1000 } // 1 second between requests
+  ```
+</ParamField>
+
+### Scope Control
+
+<ParamField path="allowedDomains" type="string[]">
+  Whitelist of domains to crawl. If set, only these domains are crawled.
+  
+  ```typescript
+  { allowedDomains: ['example.com', 'blog.example.com'] }
+  ```
+</ParamField>
+
+<ParamField path="deniedDomains" type="string[]">
+  Blacklist of domains to exclude from crawling.
+  
+  ```typescript
+  { deniedDomains: ['ads.example.com'] }
+  ```
+</ParamField>
+
+<ParamField path="includeSubdomains" type="boolean" default="false">
+  Whether to include subdomains of the start URL's domain.
+  
+  ```typescript
+  { includeSubdomains: true }
+  ```
+</ParamField>
+
+### URL Processing
+
+<ParamField path="stripQuery" type="boolean" default="false">
+  Remove query parameters from URLs before processing. Useful for deduplication.
+  
+  ```typescript
+  { stripQuery: true }
+  // https://example.com/page?ref=123 → https://example.com/page
+  ```
+</ParamField>
+
+<ParamField path="maxRedirects" type="number">
+  Maximum number of redirects to follow per URL.
+  
+  ```typescript
+  { maxRedirects: 5 }
+  ```
+</ParamField>
+
+### Detection Features
+
+<ParamField path="detectSoft404" type="boolean" default="false">
+  Enable soft 404 detection for pages that return 200 but contain error content.
+  
+  ```typescript
+  { detectSoft404: true }
+  ```
+</ParamField>
+
+<ParamField path="detectTraps" type="boolean" default="false">
+  Enable crawl trap detection to avoid infinite crawl loops.
+  
+  ```typescript
+  { detectTraps: true }
+  ```
+</ParamField>
+
+### Sitemap & Robots
+
+<ParamField path="sitemap" type="string">
+  URL to sitemap.xml or `'true'` to auto-discover at `/sitemap.xml`.
+  
+  ```typescript
+  { sitemap: 'true' } // Auto-discover
+  { sitemap: 'https://example.com/sitemap.xml' } // Explicit URL
+  ```
+</ParamField>
+
+<ParamField path="ignoreRobots" type="boolean" default="false">
+  Ignore robots.txt restrictions. Use responsibly.
+  
+  ```typescript
+  { ignoreRobots: true }
+  ```
+</ParamField>
+
+### Advanced Options
+
+<ParamField path="maxBytes" type="number">
+  Maximum response size in bytes. Larger responses are truncated.
+  
+  ```typescript
+  { maxBytes: 5000000 } // 5MB limit
+  ```
+</ParamField>
+
+<ParamField path="proxyUrl" type="string">
+  HTTP proxy URL for all requests.
+  
+  ```typescript
+  { proxyUrl: 'http://proxy.example.com:8080' }
+  ```
+</ParamField>
+
+<ParamField path="userAgent" type="string">
+  Custom User-Agent header for requests.
+  
+  ```typescript
+  { userAgent: 'MyCrawler/1.0' }
+  ```
+</ParamField>
+
+<ParamField path="snapshotType" type="'full' | 'partial' | 'incremental'">
+  Type of snapshot to create. Incremental snapshots compare against `previousGraph`.
+  
+  ```typescript
+  { snapshotType: 'incremental' }
+  ```
+</ParamField>
+
+<ParamField path="previousGraph" type="Graph">
+  Graph from a previous crawl for incremental comparison.
+  
+  ```typescript
+  const prevGraph = loadGraphFromSnapshot(previousSnapshotId);
+  const newSnapshot = await crawl(url, { 
+    limit: 1000, 
+    depth: 4,
+    previousGraph: prevGraph,
+    snapshotType: 'incremental'
+  });
+  ```
+</ParamField>
+
+<ParamField path="debug" type="boolean" default="false">
+  Enable debug output to console.
+  
+  ```typescript
+  { debug: true }
+  ```
+</ParamField>
+
+## Crawler Class
+
+The underlying Crawler class that `crawl()` uses. You can instantiate it directly for more control.
+
+```typescript
+class Crawler {
+  constructor(
+    startUrl: string, 
+    options: CrawlOptions, 
+    context?: EngineContext
+  )
+  
+  async run(): Promise<number>
+}
+```
+
+### Example
+
+```typescript
+import { Crawler } from '@crawlith/core';
+
+const crawler = new Crawler('https://example.com', {
+  limit: 100,
+  depth: 3,
+  concurrency: 5
+});
+
+const snapshotId = await crawler.run();
+console.log('Crawl complete:', snapshotId);
+```
+
+## Event Context
+
+Provide an `EngineContext` to receive real-time events during the crawl:
+
+```typescript
+interface EngineContext {
+  emit: (event: CrawlEvent) => void;
+}
+```
+
+### Event Types
+
+<ResponseField name="crawl:start" type="object">
+  Emitted when a URL starts being fetched.
+  
+  ```typescript
+  { type: 'crawl:start', url: string }
+  ```
+</ResponseField>
+
+<ResponseField name="crawl:success" type="object">
+  Emitted when a URL is successfully fetched.
+  
+  ```typescript
+  { 
+    type: 'crawl:success', 
+    url: string, 
+    status: number, 
+    durationMs: number,
+    depth: number 
+  }
+  ```
+</ResponseField>
+
+<ResponseField name="crawl:error" type="object">
+  Emitted when a URL fetch fails.
+  
+  ```typescript
+  { 
+    type: 'crawl:error', 
+    url: string, 
+    error: string,
+    depth: number 
+  }
+  ```
+</ResponseField>
+
+<ResponseField name="crawl:limit-reached" type="object">
+  Emitted when the crawl limit is reached.
+  
+  ```typescript
+  { type: 'crawl:limit-reached', limit: number }
+  ```
+</ResponseField>
+
+<ResponseField name="queue:enqueue" type="object">
+  Emitted when a URL is added to the crawl queue.
+  
+  ```typescript
+  { type: 'queue:enqueue', url: string, depth: number }
+  ```
+</ResponseField>
+
+### Example with Events
+
+```typescript
+const context = {
+  emit: (event: any) => {
+    if (event.type === 'crawl:success') {
+      console.log(`✓ ${event.url} [${event.status}] ${event.durationMs}ms`);
+    }
+  }
+};
+
+await crawl('https://example.com', { limit: 50, depth: 2 }, context);
+```

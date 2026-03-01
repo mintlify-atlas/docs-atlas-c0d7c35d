@@ -1,0 +1,165 @@
+---
+title: Core Library Overview
+description: Use Crawlith programmatically as a library in your Node.js applications
+---
+
+## Introduction
+
+The `@crawlith/core` package provides a programmatic API for crawling websites and analyzing their structure. Use it to build custom crawlers, integrate SEO analysis into your workflow, or perform automated audits.
+
+## Installation
+
+Install the core library using your preferred package manager:
+
+<CodeGroup>
+
+```bash npm
+npm install @crawlith/core
+```
+
+```bash yarn
+yarn add @crawlith/core
+```
+
+```bash pnpm
+pnpm add @crawlith/core
+```
+
+</CodeGroup>
+
+## Quick Start
+
+Here's a basic example of crawling a website and analyzing its structure:
+
+```typescript
+import { crawl, Graph, calculateMetrics } from '@crawlith/core';
+
+// Start a crawl
+const snapshotId = await crawl('https://example.com', {
+  limit: 100,
+  depth: 3,
+  concurrency: 5
+});
+
+console.log('Crawl complete! Snapshot ID:', snapshotId);
+```
+
+## Core Concepts
+
+### Crawling
+
+The crawler discovers pages by following links, respecting robots.txt, and building a graph of your site's structure. Each crawl creates a **snapshot** stored in a SQLite database.
+
+### Graph Model
+
+Crawlith represents your website as a directed graph:
+- **Nodes** represent pages (URLs)
+- **Edges** represent links between pages
+
+This model enables powerful analysis like PageRank, authority scoring, and orphan detection.
+
+### Metrics
+
+After crawling, run post-crawl metrics to calculate:
+- PageRank scores
+- HITS algorithm (authority/hub scores)
+- Orphan pages and near-orphans
+- Deep pages and crawl efficiency
+- Duplicate detection
+
+## Basic Usage Example
+
+Complete workflow with crawling and metrics:
+
+```typescript
+import { 
+  crawl, 
+  runPostCrawlMetrics,
+  loadGraphFromSnapshot,
+  calculateMetrics 
+} from '@crawlith/core';
+
+// Crawl the site
+const snapshotId = await crawl('https://example.com', {
+  limit: 500,
+  depth: 4,
+  concurrency: 10,
+  detectSoft404: true,
+  detectTraps: true
+});
+
+// Calculate metrics
+runPostCrawlMetrics(snapshotId, 4);
+
+// Load and analyze the graph
+const graph = loadGraphFromSnapshot(snapshotId);
+const metrics = calculateMetrics(graph, 4);
+
+console.log('Total pages:', metrics.totalPages);
+console.log('Orphan pages:', metrics.orphanPages.length);
+console.log('Top authority pages:', metrics.topAuthorityPages);
+```
+
+## Event-Driven Crawling
+
+Monitor crawl progress in real-time using event context:
+
+```typescript
+import { crawl } from '@crawlith/core';
+
+const context = {
+  emit: (event: any) => {
+    switch (event.type) {
+      case 'crawl:start':
+        console.log('Crawling:', event.url);
+        break;
+      case 'crawl:success':
+        console.log(`✓ ${event.url} (${event.status}) - ${event.durationMs}ms`);
+        break;
+      case 'crawl:error':
+        console.error(`✗ ${event.url}:`, event.error);
+        break;
+      case 'crawl:limit-reached':
+        console.log('Crawl limit reached:', event.limit);
+        break;
+    }
+  }
+};
+
+const snapshotId = await crawl('https://example.com', {
+  limit: 100,
+  depth: 3
+}, context);
+```
+
+## TypeScript Support
+
+The library is written in TypeScript and includes full type definitions. All interfaces and types are exported for your use:
+
+```typescript
+import type { 
+  CrawlOptions, 
+  Graph, 
+  GraphNode, 
+  GraphEdge,
+  Metrics,
+  AuditResult 
+} from '@crawlith/core';
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Crawler API" icon="spider" href="/api/crawler">
+    Learn about crawl options and the Crawler class
+  </Card>
+  <Card title="Graph API" icon="diagram-project" href="/api/graph">
+    Work with the graph structure and analysis
+  </Card>
+  <Card title="Metrics API" icon="chart-line" href="/api/metrics">
+    Calculate and analyze site metrics
+  </Card>
+  <Card title="Audit API" icon="shield-check" href="/api/audit">
+    Perform security and performance audits
+  </Card>
+</CardGroup>

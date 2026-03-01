@@ -1,0 +1,361 @@
+---
+title: "crawl"
+description: "Crawl an entire website and build its internal link graph, metrics, and SEO structure"
+---
+
+## Usage
+
+```bash
+crawlith crawl [url] [options]
+```
+
+The `crawl` command is the core functionality of Crawlith. It performs a comprehensive website crawl, building an internal link graph, calculating metrics, and analyzing SEO structure. The crawl results are stored in the local database and can be visualized using the `ui` command.
+
+## Arguments
+
+<ParamField path="url" type="string" required>
+  The URL to crawl. Must be a valid HTTP/HTTPS URL.
+</ParamField>
+
+## Core Options
+
+<ParamField path="--limit" type="number" default="500">
+  Maximum number of pages to crawl. Use this to control crawl size.
+  
+  ```bash
+  crawlith crawl https://example.com --limit 1000
+  ```
+</ParamField>
+
+<ParamField path="--depth" type="number" default="5">
+  Maximum click depth from the starting URL. Controls how deep the crawler traverses your site hierarchy.
+  
+  ```bash
+  crawlith crawl https://example.com --depth 3
+  ```
+</ParamField>
+
+<ParamField path="--concurrency" type="number" default="2">
+  Maximum number of concurrent requests. Increase for faster crawls on robust infrastructure.
+  
+  ```bash
+  crawlith crawl https://example.com --concurrency 5
+  ```
+</ParamField>
+
+<ParamField path="--rate" type="number" default="2">
+  Requests per second per host. Controls crawl politeness.
+  
+  ```bash
+  crawlith crawl https://example.com --rate 5
+  ```
+</ParamField>
+
+## Output & Export Options
+
+<ParamField path="--output" type="string" default="./crawlith-reports">
+  Output directory for exports. Used in conjunction with `--export`.
+  
+  ```bash
+  crawlith crawl https://example.com --output ./reports
+  ```
+</ParamField>
+
+<ParamField path="--export" type="string">
+  Export formats (comma-separated). Available formats: `json`, `markdown`, `csv`, `html`, `visualize`.
+  
+  ```bash
+  crawlith crawl https://example.com --export json,html,markdown
+  ```
+</ParamField>
+
+<ParamField path="--format" type="string" default="pretty">
+  Output format for terminal display. Options: `pretty`, `json`.
+  
+  ```bash
+  crawlith crawl https://example.com --format json
+  ```
+</ParamField>
+
+<ParamField path="--log-level" type="string" default="normal">
+  Log verbosity level. Options: `normal`, `verbose`, `debug`.
+  
+  ```bash
+  crawlith crawl https://example.com --log-level verbose
+  ```
+</ParamField>
+
+## Crawl Behavior
+
+<ParamField path="--no-query" type="boolean">
+  Strip query parameters from URLs during crawl. Useful for avoiding duplicate content from URL parameters.
+  
+  ```bash
+  crawlith crawl https://example.com --no-query
+  ```
+</ParamField>
+
+<ParamField path="--ignore-robots" type="boolean">
+  Ignore robots.txt rules. Use responsibly and only on sites you own or have permission to crawl.
+  
+  ```bash
+  crawlith crawl https://example.com --ignore-robots
+  ```
+</ParamField>
+
+<ParamField path="--incremental" type="boolean">
+  Perform an incremental crawl using the previous snapshot. Only crawls changed/new pages.
+  
+  ```bash
+  crawlith crawl https://example.com --incremental
+  ```
+</ParamField>
+
+<ParamField path="--sitemap" type="string">
+  Sitemap URL to use for crawl discovery. If provided without a value, defaults to `/sitemap.xml`.
+  
+  ```bash
+  # Use default sitemap.xml
+  crawlith crawl https://example.com --sitemap
+  
+  # Use custom sitemap URL
+  crawlith crawl https://example.com --sitemap https://example.com/sitemap_index.xml
+  ```
+</ParamField>
+
+## Network & Request Options
+
+<ParamField path="--max-bytes" type="number" default="2000000">
+  Maximum response size in bytes (default: 2MB). Prevents crawling of extremely large files.
+  
+  ```bash
+  crawlith crawl https://example.com --max-bytes 5000000
+  ```
+</ParamField>
+
+<ParamField path="--max-redirects" type="number" default="2">
+  Maximum number of redirect hops to follow.
+  
+  ```bash
+  crawlith crawl https://example.com --max-redirects 5
+  ```
+</ParamField>
+
+<ParamField path="--proxy" type="string">
+  Proxy URL for all requests (format: `http://user:pass@host:port`).
+  
+  ```bash
+  crawlith crawl https://example.com --proxy http://proxy.example.com:8080
+  ```
+</ParamField>
+
+<ParamField path="--ua" type="string">
+  Custom User-Agent string for requests.
+  
+  ```bash
+  crawlith crawl https://example.com --ua "MyBot/1.0"
+  ```
+</ParamField>
+
+## Domain Filtering
+
+<ParamField path="--allow" type="string">
+  Whitelist of domains (comma-separated) to allow during crawl.
+  
+  ```bash
+  crawlith crawl https://example.com --allow example.com,cdn.example.com
+  ```
+</ParamField>
+
+<ParamField path="--deny" type="string">
+  Blacklist of domains (comma-separated) to deny during crawl.
+  
+  ```bash
+  crawlith crawl https://example.com --deny ads.example.com,tracking.example.com
+  ```
+</ParamField>
+
+<ParamField path="--include-subdomains" type="boolean">
+  Include subdomains in the crawl scope.
+  
+  ```bash
+  crawlith crawl https://example.com --include-subdomains
+  ```
+</ParamField>
+
+## Analysis Features
+
+<ParamField path="--orphans" type="boolean">
+  Enable orphan page detection. Identifies pages with few or no internal links.
+  
+  ```bash
+  crawlith crawl https://example.com --orphans
+  ```
+</ParamField>
+
+<ParamField path="--orphan-severity" type="boolean">
+  Enable orphan severity scoring. Requires `--orphans` to be enabled.
+  
+  ```bash
+  crawlith crawl https://example.com --orphans --orphan-severity
+  ```
+</ParamField>
+
+<ParamField path="--include-soft-orphans" type="boolean">
+  Include soft orphan detection (pages with few inbound links).
+  
+  ```bash
+  crawlith crawl https://example.com --orphans --include-soft-orphans
+  ```
+</ParamField>
+
+<ParamField path="--min-inbound" type="number" default="2">
+  Near-orphan threshold override. Pages with fewer than this many inbound links are flagged.
+  
+  ```bash
+  crawlith crawl https://example.com --orphans --min-inbound 3
+  ```
+</ParamField>
+
+<ParamField path="--detect-soft404" type="boolean">
+  Detect soft 404 pages (pages that return 200 but contain 404-like content).
+  
+  ```bash
+  crawlith crawl https://example.com --detect-soft404
+  ```
+</ParamField>
+
+<ParamField path="--detect-traps" type="boolean">
+  Detect and cluster crawl traps (infinite loops, pagination issues, etc.).
+  
+  ```bash
+  crawlith crawl https://example.com --detect-traps
+  ```
+</ParamField>
+
+<ParamField path="--cluster-threshold" type="number" default="10">
+  Hamming distance threshold for content cluster detection.
+  
+  ```bash
+  crawlith crawl https://example.com --cluster-threshold 15
+  ```
+</ParamField>
+
+<ParamField path="--min-cluster-size" type="number" default="3">
+  Minimum number of pages required to form a cluster.
+  
+  ```bash
+  crawlith crawl https://example.com --min-cluster-size 5
+  ```
+</ParamField>
+
+<ParamField path="--compute-hits" type="boolean">
+  Compute Hub and Authority scores using the HITS algorithm.
+  
+  ```bash
+  crawlith crawl https://example.com --compute-hits
+  ```
+</ParamField>
+
+<ParamField path="--no-collapse" type="boolean">
+  Do not collapse duplicate clusters before calculating PageRank.
+  
+  ```bash
+  crawlith crawl https://example.com --no-collapse
+  ```
+</ParamField>
+
+## Advanced Options
+
+<ParamField path="--score-breakdown" type="boolean">
+  Print health score component weights and breakdown after crawl.
+  
+  ```bash
+  crawlith crawl https://example.com --score-breakdown
+  ```
+</ParamField>
+
+<ParamField path="--fail-on-critical" type="boolean">
+  Exit with code 1 if critical issues are detected. Useful for CI/CD pipelines.
+  
+  ```bash
+  crawlith crawl https://example.com --fail-on-critical
+  ```
+</ParamField>
+
+<ParamField path="--force" type="boolean">
+  Force run and override existing process lock. Use with caution.
+  
+  ```bash
+  crawlith crawl https://example.com --force
+  ```
+</ParamField>
+
+<ParamField path="--compare" type="string[]">
+  Internal: Compare two graph JSON files. Requires exactly two file paths.
+  
+  ```bash
+  crawlith crawl --compare old.json new.json
+  ```
+</ParamField>
+
+## Examples
+
+### Basic Crawl
+
+```bash
+crawlith crawl https://example.com
+```
+
+### Large Site Crawl with Exports
+
+```bash
+crawlith crawl https://example.com \
+  --limit 5000 \
+  --depth 10 \
+  --concurrency 5 \
+  --export json,html,markdown
+```
+
+### Comprehensive SEO Audit
+
+```bash
+crawlith crawl https://example.com \
+  --orphans \
+  --orphan-severity \
+  --detect-soft404 \
+  --detect-traps \
+  --compute-hits \
+  --score-breakdown
+```
+
+### Incremental Crawl for Large Sites
+
+```bash
+crawlith crawl https://example.com \
+  --incremental \
+  --sitemap \
+  --limit 10000
+```
+
+### CI/CD Integration
+
+```bash
+crawlith crawl https://staging.example.com \
+  --fail-on-critical \
+  --orphans \
+  --detect-soft404 \
+  --format json > report.json
+```
+
+<Note>
+After a successful crawl, use `crawlith ui https://example.com` to explore the results in an interactive dashboard.
+</Note>
+
+<Warning>
+Use `--ignore-robots` responsibly and only on sites you own or have explicit permission to crawl. Respecting robots.txt is an important web crawling convention.
+</Warning>
+
+<Tip>
+For large sites, start with a smaller `--limit` to test your configuration before running a full crawl. You can always use `--incremental` later to complete the crawl.
+</Tip>

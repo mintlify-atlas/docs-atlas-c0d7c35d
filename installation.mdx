@@ -1,0 +1,159 @@
+---
+title: Installation
+description: Install Crawlith using npm, pnpm, yarn, or build from source
+---
+
+## Requirements
+
+Crawlith requires **Node.js 20.0.0 or higher**. Check your version:
+
+```bash
+node --version
+```
+
+If you need to upgrade, visit [nodejs.org](https://nodejs.org/) to download the latest version.
+
+## Package Manager Installation
+
+Install Crawlith globally using your preferred package manager:
+
+<CodeGroup>
+
+```bash npm
+npm install -g @crawlith/cli
+```
+
+```bash pnpm
+pnpm add -g @crawlith/cli
+```
+
+```bash yarn
+yarn global add @crawlith/cli
+```
+
+</CodeGroup>
+
+<Note>
+  The package `@crawlith/cli` includes the full CLI interface with all commands: `crawl`, `page`, `ui`, `audit`, `sites`, and `clean`.
+</Note>
+
+Verify the installation:
+
+```bash
+crawlith --version
+```
+
+You should see output like:
+
+```
+0.1.1
+```
+
+## Installing from Source
+
+For development or contributing to Crawlith, you can build from source.
+
+<Steps>
+  <Step title="Clone the repository">
+    ```bash
+    git clone https://github.com/your-org/crawlith.git
+    cd crawlith
+    ```
+  </Step>
+
+  <Step title="Install dependencies">
+    Crawlith uses npm workspaces for its monorepo structure:
+
+    ```bash
+    npm install
+    ```
+  </Step>
+
+  <Step title="Build all packages">
+    ```bash
+    npm run build
+    ```
+
+    This compiles TypeScript for `@crawlith/core`, `@crawlith/cli`, and `@crawlith/web`.
+  </Step>
+
+  <Step title="Link the CLI globally">
+    ```bash
+    npm link ./plugins/cli
+    ```
+
+    Now you can run `crawlith` from anywhere on your system.
+  </Step>
+</Steps>
+
+<Tip>
+  During development, you can run the CLI directly without linking using:
+  
+  ```bash
+  npm run crawlith -- <command>
+  ```
+  
+  For example: `npm run crawlith -- crawl https://example.com`
+</Tip>
+
+## Data Storage
+
+Crawlith automatically creates a local SQLite database on first run:
+
+```
+~/.crawlith/crawlith.db
+```
+
+This database stores:
+
+- **Sites**: Tracked domains and their metadata
+- **Snapshots**: Timestamped crawl sessions with configuration
+- **Pages**: Normalized URLs, HTML content, HTTP status, and SEO metadata
+- **Edges**: Internal link relationships between pages
+- **Metrics**: Calculated scores, PageRank, HITS, and health indicators
+
+<Warning>
+  Do not delete `~/.crawlith/crawlith.db` unless you want to lose all crawl history. Crawlith uses this database for incremental crawling and snapshot comparisons.
+</Warning>
+
+## Verifying Installation
+
+Run Crawlith without arguments to see the welcome banner and available commands:
+
+```bash
+crawlith
+```
+
+You should see:
+
+```
+  ██████╗██████╗  █████╗ ██╗    ██╗██╗     ██╗████████╗██╗  ██╗ 0.1.1
+ ██╔════╝██╔══██╗██╔══██╗██║    ██║██║     ██║╚══██╔══╝██║  ██║
+ ██║     ██████╔╝███████║██║ █╗ ██║██║     ██║   ██║   ███████║
+ ██║     ██╔══██╗██╔══██║██║███╗██║██║     ██║   ██║   ██╔══██║
+ ╚██████╗██║  ██║██║  ██║╚███╔███╔╝███████╗██║   ██║   ██║  ██║
+  ╚═════╝╚═╝  ╚═╝╚═╝  ╚═╝ ╚══╝╚══╝ ╚══════╝╚═╝   ╚═╝   ╚═╝  ╚═╝
+
+Crawlith — Deterministic crawl intelligence.
+
+Usage: crawlith [options] [command]
+
+Options:
+  -V, --version      output the version number
+  -h, --help         display help for command
+
+Commands:
+  crawl [options] [url]   Crawl an entire website and build its internal link graph
+  page [options] [url]    Analyze a single URL for on-page SEO signals
+  ui                      Launch the interactive web dashboard
+  probe [options] [url]   Run infrastructure audit (TLS, DNS, Security)
+  sites                   List all tracked sites in the database
+  clean                   Clean up old snapshots and optimize database
+  help [command]          display help for command
+```
+
+## Next Steps
+
+<Card title="Quickstart" icon="rocket" href="/quickstart">
+  Ready to crawl your first site? Follow the quickstart guide.
+</Card>

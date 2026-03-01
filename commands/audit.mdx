@@ -1,0 +1,299 @@
+---
+title: "probe"
+description: "Inspect a domain's transport layer, SSL/TLS, and HTTP configuration"
+---
+
+## Usage
+
+```bash
+crawlith probe [url] [options]
+```
+
+The `probe` command performs a low-level infrastructure audit of a URL, inspecting transport layer details, SSL/TLS configuration, HTTP headers, and protocol negotiation. This is useful for security audits, performance optimization, and troubleshooting connection issues.
+
+## Arguments
+
+<ParamField path="url" type="string" required>
+  URL to audit. Must be a valid HTTP/HTTPS URL.
+  
+  ```bash
+  crawlith probe https://example.com
+  ```
+</ParamField>
+
+## Options
+
+<ParamField path="--verbose" type="boolean">
+  Prints structured, expanded human-readable output with detailed information.
+  
+  ```bash
+  crawlith probe https://example.com --verbose
+  ```
+</ParamField>
+
+<ParamField path="--debug" type="boolean">
+  Prints low-level timing, negotiation, and raw protocol details for deep troubleshooting.
+  
+  ```bash
+  crawlith probe https://example.com --debug
+  ```
+</ParamField>
+
+<ParamField path="--json" type="boolean">
+  Outputs structured JSON only, suitable for programmatic consumption or piping to other tools.
+  
+  ```bash
+  crawlith probe https://example.com --json > audit.json
+  ```
+</ParamField>
+
+<ParamField path="--timeout" type="number" default="10000">
+  Request timeout in milliseconds.
+  
+  ```bash
+  crawlith probe https://example.com --timeout 5000
+  ```
+</ParamField>
+
+## What It Inspects
+
+The `probe` command analyzes:
+
+### SSL/TLS Configuration
+- Certificate validity and expiration
+- Certificate chain validation
+- TLS version and cipher suites
+- Protocol negotiation details
+- Certificate transparency logs
+
+### HTTP Configuration
+- Response headers
+- Security headers (HSTS, CSP, X-Frame-Options, etc.)
+- Caching headers
+- Compression settings
+- Cookie configuration
+
+### Transport Layer
+- Connection timing (DNS, TCP, TLS handshake)
+- Redirect chain analysis
+- Protocol upgrades (HTTP/1.1, HTTP/2, HTTP/3)
+- Keep-alive settings
+
+### Network Performance
+- DNS resolution time
+- Connection establishment time
+- Time to first byte (TTFB)
+- Total request time
+
+## Examples
+
+### Basic Audit
+
+```bash
+crawlith probe https://example.com
+```
+
+Outputs a summary of SSL/TLS and HTTP configuration.
+
+### Detailed Audit
+
+```bash
+crawlith probe https://example.com --verbose
+```
+
+Provides expanded details including:
+- Full certificate chain
+- All HTTP headers
+- Timing breakdown
+- Security recommendations
+
+### Debug Mode
+
+```bash
+crawlith probe https://example.com --debug
+```
+
+Includes:
+- Raw protocol handshake details
+- Byte-level timing
+- Negotiation steps
+- Low-level socket information
+
+### JSON Output for Automation
+
+```bash
+crawlith probe https://example.com --json | jq '.ssl.valid'
+```
+
+Pipe to `jq` or other JSON processors for automated checks.
+
+### Security Audit Script
+
+```bash
+#!/bin/bash
+for domain in example.com api.example.com cdn.example.com; do
+  echo "Auditing $domain..."
+  crawlith probe "https://$domain" --json > "audit-$domain.json"
+done
+```
+
+### CI/CD Integration
+
+```bash
+# Check if SSL certificate is valid
+crawlith probe https://production.example.com --json | \
+  jq -e '.ssl.valid == true' || exit 1
+```
+
+## Output Formats
+
+### Default (Pretty)
+
+```
+🔍 Probing https://example.com
+
+✅ SSL/TLS
+  Version: TLSv1.3
+  Cipher: TLS_AES_256_GCM_SHA384
+  Valid: Yes
+  Expires: 2024-12-31
+
+📋 HTTP Headers
+  Status: 200
+  Server: nginx/1.21.0
+  Content-Type: text/html
+  ...
+```
+
+### Verbose
+
+Adds:
+- Complete certificate chain
+- All response headers
+- Detailed timing breakdown
+- Security header analysis
+
+### Debug
+
+Adds:
+- Protocol negotiation logs
+- Socket-level details
+- Raw timing data
+- Connection state information
+
+### JSON
+
+```json
+{
+  "url": "https://example.com",
+  "ssl": {
+    "valid": true,
+    "version": "TLSv1.3",
+    "cipher": "TLS_AES_256_GCM_SHA384",
+    "certificate": {
+      "subject": "example.com",
+      "issuer": "Let's Encrypt",
+      "validFrom": "2024-01-01",
+      "validTo": "2024-12-31"
+    }
+  },
+  "http": {
+    "status": 200,
+    "headers": { ... },
+    "redirects": []
+  },
+  "timing": {
+    "dns": 12,
+    "tcp": 45,
+    "tls": 67,
+    "ttfb": 123,
+    "total": 234
+  }
+}
+```
+
+## Use Cases
+
+### SSL Certificate Monitoring
+
+Check certificate expiration and validity:
+
+```bash
+crawlith probe https://example.com --json | jq '.ssl.certificate.validTo'
+```
+
+### Security Header Audit
+
+Verify security headers are present:
+
+```bash
+crawlith probe https://example.com --verbose | grep -i "strict-transport-security"
+```
+
+### Performance Debugging
+
+Identify slow connection phases:
+
+```bash
+crawlith probe https://slow-site.com --debug
+```
+
+### Protocol Analysis
+
+Check HTTP/2 or HTTP/3 support:
+
+```bash
+crawlith probe https://example.com --verbose
+```
+
+### Redirect Chain Analysis
+
+Understand redirect behavior:
+
+```bash
+crawlith probe http://example.com --verbose
+```
+
+<Note>
+The `probe` command performs only a single request to the specified URL. It does not crawl the site or analyze multiple pages.
+</Note>
+
+<Tip>
+Use `--json` output with `jq` for powerful filtering and automation. For example: `crawlith probe https://example.com --json | jq '.timing.ttfb'`
+</Tip>
+
+<Warning>
+The `--debug` flag can produce very verbose output. Redirect to a file if saving for analysis: `crawlith probe https://example.com --debug > debug.log`
+</Warning>
+
+## Common Issues
+
+### SSL Certificate Errors
+
+```bash
+crawlith probe https://expired.badssl.com/ --verbose
+```
+
+Will show detailed SSL validation errors.
+
+### Timeout Issues
+
+```bash
+crawlith probe https://very-slow-site.com --timeout 30000
+```
+
+Increase timeout for slow-responding servers.
+
+### Connection Refused
+
+Check firewall, DNS, or server availability:
+
+```bash
+crawlith probe https://example.com --debug
+```
+
+## Related Commands
+
+- Use [`crawl`](/commands/crawl) for comprehensive site-wide analysis
+- Use [`page`](/commands/page) for single-page SEO analysis
+- Use `probe` for infrastructure and transport-layer inspection

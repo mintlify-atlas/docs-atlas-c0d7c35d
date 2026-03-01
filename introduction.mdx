@@ -1,0 +1,125 @@
+---
+title: Introduction
+description: High-performance Node.js crawler for website audits, link graphs, and infrastructure analysis
+---
+
+<img
+  className="block dark:hidden"
+  src="/images/hero-light.svg"
+  alt="Crawlith Hero Light"
+/>
+<img
+  className="hidden dark:block"
+  src="/images/hero-dark.svg"
+  alt="Crawlith Hero Dark"
+/>
+
+## What is Crawlith?
+
+Crawlith is a modular crawl intelligence engine built with Node.js and TypeScript. It combines high-performance website crawling with deep infrastructure auditing and interactive visualization to give you complete visibility into your site's technical health.
+
+Whether you're conducting SEO audits, mapping internal link structures, or analyzing TLS/DNS configurations, Crawlith provides production-grade tooling with persistent SQLite storage and snapshot-based history tracking.
+
+## Key Features
+
+<CardGroup cols={2}>
+  <Card
+    title="BFS Crawling Algorithm"
+    icon="diagram-project"
+  >
+    Efficiently crawl websites using breadth-first search with configurable depth and page limits. Respects robots.txt and rate limits by default.
+  </Card>
+  <Card
+    title="Interactive Visualizations"
+    icon="chart-network"
+  >
+    Generate D3.js-powered link graphs and HTML reports to explore your site's internal link structure visually.
+  </Card>
+  <Card
+    title="Persistent SQLite Storage"
+    icon="database"
+  >
+    All crawl data is stored locally in `~/.crawlith/crawlith.db` with snapshot-based metrics and history tracking.
+  </Card>
+  <Card
+    title="Unified Export System"
+    icon="file-export"
+  >
+    Export crawl results in multiple formats: JSON, CSV, Markdown, HTML reports, and interactive visualizations.
+  </Card>
+  <Card
+    title="Critical Issue Detection"
+    icon="triangle-exclamation"
+  >
+    Automatically detect orphan pages, broken links, redirect chains, crawl traps, and soft 404s.
+  </Card>
+  <Card
+    title="Web Dashboard"
+    icon="browser"
+  >
+    Launch an interactive React-based dashboard with `crawlith ui` to review snapshots and visualize crawl data.
+  </Card>
+  <Card
+    title="Infrastructure Auditing"
+    icon="shield-halved"
+  >
+    Run deep TLS, DNS, and security header checks with `crawlith audit` to identify infrastructure vulnerabilities.
+  </Card>
+  <Card
+    title="Monorepo Architecture"
+    icon="cubes"
+  >
+    Cleanly separated core library, CLI client, and web dashboard for maximum flexibility and extensibility.
+  </Card>
+</CardGroup>
+
+## Use Cases
+
+- **SEO Audits**: Identify orphan pages, duplicate content clusters, and broken internal links
+- **Site Migrations**: Compare crawl snapshots before and after migrations to detect issues
+- **Content Analysis**: Analyze thin content, detect duplicate titles, and score on-page SEO
+- **Infrastructure Security**: Audit TLS certificates, DNS configurations, and security headers
+- **Link Graph Analysis**: Visualize internal link structures and calculate PageRank scores
+
+## Architecture
+
+Crawlith uses a workspace-based monorepo structure:
+
+- **`plugins/core`**: The heavy-lifting engine with database, graph algorithms, crawler, and security boundaries
+- **`plugins/cli`**: The terminal user interface with commands like `crawl`, `page`, `ui`, `audit`, and more
+- **`plugins/web`**: The React-based interactive dashboard frontend
+
+All data is persisted locally in an SQLite database at `~/.crawlith/crawlith.db`, enabling snapshot-based comparisons and incremental crawling.
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card
+    title="Installation"
+    icon="download"
+    href="/installation"
+  >
+    Get Crawlith installed and ready to use
+  </Card>
+  <Card
+    title="Quickstart"
+    icon="rocket"
+    href="/quickstart"
+  >
+    Crawl your first site in under 2 minutes
+  </Card>
+  <Card
+    title="CLI Reference"
+    icon="terminal"
+    href="/cli/crawl"
+  >
+    Explore all available commands and options
+  </Card>
+  <Card
+    title="API Documentation"
+    icon="code"
+    href="/api/core"
+  >
+    Use Crawlith programmatically in your projects
+  </Card>
+</CardGroup>

@@ -1,0 +1,358 @@
+---
+title: Graph API
+description: Work with the site graph structure and analyze link relationships
+---
+
+## Graph Class
+
+Represents a website as a directed graph of nodes (pages) and edges (links).
+
+```typescript
+class Graph {
+  nodes: Map<string, GraphNode>;
+  edges: Map<string, number>;
+  limitReached: boolean;
+  sessionStats: CrawlStats;
+  trapClusters: { pattern: string; type: string; count: number }[];
+  duplicateClusters: DuplicateCluster[];
+  contentClusters: ClusterInfo[];
+  
+  addNode(url: string, depth: number, status?: number): void;
+  updateNodeData(url: string, data: Partial<GraphNode>): void;
+  addEdge(source: string, target: string, weight?: number): void;
+  getNodes(): GraphNode[];
+  getEdges(): GraphEdge[];
+  toJSON(): object;
+  static fromJSON(json: any): Graph;
+  static getEdgeKey(source: string, target: string): string;
+  static parseEdgeKey(key: string): { source: string; target: string };
+}
+```
+
+## GraphNode
+
+Represents a single page in the graph with all its metadata.
+
+```typescript
+interface GraphNode {
+  // Basic info
+  url: string;
+  depth: number;
+  status: number;
+  
+  // Link metrics
+  inLinks: number;
+  outLinks: number;
+  
+  // SEO metadata
+  canonical?: string;
+  noindex?: boolean;
+  nofollow?: boolean;
+  
+  // Content analysis
+  html?: string;
+  contentHash?: string;
+  simhash?: string;
+  wordCount?: number;
+  
+  // Link analysis scores
+  pageRank?: number;
+  pageRankScore?: number;
+  authorityScore?: number;
+  hubScore?: number;
+  linkRole?: 'hub' | 'authority' | 'power' | 'balanced' | 'peripheral';
+  
+  // Issues & detection
+  brokenLinks?: string[];
+  orphanScore?: number;
+  thinContentScore?: number;
+  externalLinkRatio?: number;
+  soft404Score?: number;
+  soft404Signals?: string[];
+  
+  // Crawl traps
+  crawlTrapFlag?: boolean;
+  crawlTrapRisk?: number;
+  trapType?: string;
+  
+  // Duplicates & clusters
+  duplicateClusterId?: string;
+  duplicateType?: 'exact' | 'near' | 'template_heavy' | 'none';
+  isClusterPrimary?: boolean;
+  isCollapsed?: boolean;
+  collapseInto?: string;
+  uniqueTokenRatio?: number;
+  clusterId?: number;
+  
+  // HTTP details
+  redirectChain?: string[];
+  etag?: string;
+  lastModified?: string;
+  bytesReceived?: number;
+  retries?: number;
+  securityError?: string;
+  
+  // Incremental crawl
+  incrementalStatus?: 'new' | 'changed' | 'unchanged' | 'deleted';
+  crawlStatus?: string;
+}
+```
+
+## GraphEdge
+
+Represents a directed link between two pages.
+
+```typescript
+interface GraphEdge {
+  source: string;  // Source URL
+  target: string;  // Target URL
+  weight: number;  // Link weight (typically 1.0)
+}
+```
+
+## Working with Graphs
+
+### Creating a Graph
+
+```typescript
+import { Graph } from '@crawlith/core';
+
+const graph = new Graph();
+
+// Add nodes
+graph.addNode('https://example.com/', 0, 200);
+graph.addNode('https://example.com/about', 1, 200);
+graph.addNode('https://example.com/contact', 1, 200);
+
+// Add edges (links)
+graph.addEdge('https://example.com/', 'https://example.com/about');
+graph.addEdge('https://example.com/', 'https://example.com/contact');
+```
+
+### Loading from Snapshot
+
+Load a graph created by a previous crawl:
+
+```typescript
+import { loadGraphFromSnapshot } from '@crawlith/core';
+
+const snapshotId = 123;
+const graph = loadGraphFromSnapshot(snapshotId);
+
+console.log('Loaded graph with', graph.nodes.size, 'nodes');
+```
+
+### Accessing Nodes
+
+```typescript
+// Get all nodes as an array
+const allNodes = graph.getNodes();
+
+// Access a specific node
+const node = graph.nodes.get('https://example.com/about');
+if (node) {
+  console.log('Depth:', node.depth);
+  console.log('Inbound links:', node.inLinks);
+  console.log('Outbound links:', node.outLinks);
+  console.log('PageRank:', node.pageRank);
+}
+
+// Filter nodes by criteria
+const orphans = allNodes.filter(n => n.inLinks === 0 && n.depth > 0);
+const deepPages = allNodes.filter(n => n.depth >= 4);
+const errors = allNodes.filter(n => n.status >= 400);
+```
+
+### Accessing Edges
+
+```typescript
+// Get all edges as an array
+const allEdges = graph.getEdges();
+
+// Find outgoing links from a page
+const outgoingLinks = allEdges.filter(e => 
+  e.source === 'https://example.com/'
+);
+
+// Find incoming links to a page
+const incomingLinks = allEdges.filter(e => 
+  e.target === 'https://example.com/about'
+);
+
+console.log('Edges:', allEdges.length);
+```
+
+### Updating Node Data
+
+```typescript
+// Add or update node metadata
+graph.updateNodeData('https://example.com/about', {
+  pageRank: 0.85,
+  authorityScore: 0.92,
+  wordCount: 1500
+});
+```
+
+## Serialization
+
+### Export to JSON
+
+```typescript
+const json = graph.toJSON();
+
+// Save to file
+import { writeFileSync } from 'fs';
+writeFileSync('graph.json', JSON.stringify(json, null, 2));
+```
+
+The JSON structure:
+
+```typescript
+{
+  nodes: GraphNode[],
+  edges: GraphEdge[],
+  duplicateClusters: DuplicateCluster[],
+  contentClusters: ClusterInfo[]
+}
+```
+
+### Import from JSON
+
+```typescript
+import { readFileSync } from 'fs';
+import { Graph } from '@crawlith/core';
+
+const json = JSON.parse(readFileSync('graph.json', 'utf-8'));
+const graph = Graph.fromJSON(json);
+
+console.log('Restored graph:', graph.nodes.size, 'nodes');
+```
+
+## Cluster Information
+
+### Duplicate Clusters
+
+Groups of pages with similar or identical content:
+
+```typescript
+interface DuplicateCluster {
+  id: string;
+  type: 'exact' | 'near' | 'template_heavy';
+  size: number;
+  representative: string;
+  severity: 'low' | 'medium' | 'high';
+}
+
+// Access duplicate clusters
+for (const cluster of graph.duplicateClusters) {
+  console.log(`Cluster ${cluster.id}: ${cluster.size} pages`);
+  console.log(`  Type: ${cluster.type}`);
+  console.log(`  Representative: ${cluster.representative}`);
+}
+```
+
+### Content Clusters
+
+Groups of pages based on content similarity:
+
+```typescript
+interface ClusterInfo {
+  id: number;
+  count: number;
+  primaryUrl: string;
+  risk: 'low' | 'medium' | 'high';
+  sharedPathPrefix?: string;
+}
+
+// Access content clusters
+for (const cluster of graph.contentClusters) {
+  console.log(`Content cluster ${cluster.id}: ${cluster.count} pages`);
+  console.log(`  Primary: ${cluster.primaryUrl}`);
+  console.log(`  Risk: ${cluster.risk}`);
+}
+```
+
+## Crawl Statistics
+
+Access session statistics from the crawl:
+
+```typescript
+interface CrawlStats {
+  pagesFetched: number;   // Pages downloaded
+  pagesCached: number;    // Pages served from cache (304)
+  pagesSkipped: number;   // Pages skipped
+  totalFound: number;     // Total unique URLs discovered
+}
+
+const stats = graph.sessionStats;
+console.log('Fetched:', stats.pagesFetched);
+console.log('Cached:', stats.pagesCached);
+console.log('Total found:', stats.totalFound);
+
+if (graph.limitReached) {
+  console.log('Crawl limit was reached');
+}
+```
+
+## Edge Key Utilities
+
+The Graph class provides utilities for working with edge keys:
+
+```typescript
+// Create an edge key from source and target
+const key = Graph.getEdgeKey(
+  'https://example.com/',
+  'https://example.com/about'
+);
+
+// Parse an edge key back into source and target
+const { source, target } = Graph.parseEdgeKey(key);
+console.log('Source:', source);
+console.log('Target:', target);
+```
+
+## Example: Find Broken Links
+
+```typescript
+import { loadGraphFromSnapshot } from '@crawlith/core';
+
+const graph = loadGraphFromSnapshot(snapshotId);
+
+// Find all pages with broken outbound links
+for (const node of graph.getNodes()) {
+  if (node.brokenLinks && node.brokenLinks.length > 0) {
+    console.log(`${node.url} has ${node.brokenLinks.length} broken links:`);
+    node.brokenLinks.forEach(broken => {
+      console.log(`  - ${broken}`);
+    });
+  }
+}
+```
+
+## Example: Analyze Link Structure
+
+```typescript
+const graph = loadGraphFromSnapshot(snapshotId);
+
+// Find hub pages (many outbound links)
+const hubs = graph.getNodes()
+  .filter(n => n.outLinks >= 10)
+  .sort((a, b) => b.outLinks - a.outLinks)
+  .slice(0, 10);
+
+console.log('Top hub pages:');
+hubs.forEach(node => {
+  console.log(`  ${node.url} (${node.outLinks} outbound links)`);
+});
+
+// Find authority pages (many inbound links)
+const authorities = graph.getNodes()
+  .filter(n => n.inLinks >= 5)
+  .sort((a, b) => b.inLinks - a.inLinks)
+  .slice(0, 10);
+
+console.log('Top authority pages:');
+authorities.forEach(node => {
+  console.log(`  ${node.url} (${node.inLinks} inbound links)`);
+});
+```

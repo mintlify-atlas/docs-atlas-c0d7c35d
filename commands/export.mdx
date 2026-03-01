@@ -1,0 +1,337 @@
+---
+title: "export"
+description: "Export latest snapshot data for a site in various formats"
+---
+
+## Usage
+
+```bash
+crawlith export [url] [options]
+```
+
+The `export` command retrieves the latest completed crawl snapshot from the database and exports it in various formats. This is useful for generating reports, integrating with other tools, or archiving crawl data.
+
+## Arguments
+
+<ParamField path="url" type="string" required>
+  URL or domain of the site to export. The site must have been previously crawled.
+  
+  ```bash
+  crawlith export https://example.com
+  # or just the domain
+  crawlith export example.com
+  ```
+</ParamField>
+
+## Options
+
+<ParamField path="--output" type="string" default="./crawlith-reports">
+  Output directory where export files will be saved. A subdirectory will be created for the domain.
+  
+  ```bash
+  crawlith export https://example.com --output ./my-reports
+  ```
+</ParamField>
+
+<ParamField path="--export" type="string" default="json">
+  Export formats (comma-separated). Available formats:
+  - `json` - Structured JSON with full graph data
+  - `markdown` - Human-readable Markdown report
+  - `csv` - Spreadsheet-compatible CSV files
+  - `html` - Interactive HTML report
+  - `visualize` - Graph visualization files
+  
+  ```bash
+  crawlith export https://example.com --export json,markdown,html
+  ```
+</ParamField>
+
+## Export Formats
+
+### JSON
+
+Structured JSON export containing:
+- Complete link graph (nodes and edges)
+- Page metrics (PageRank, authority scores, etc.)
+- Site-wide metrics
+- Detected issues (orphans, duplicates, clusters)
+- Crawl metadata
+
+```bash
+crawlith export https://example.com --export json
+```
+
+Output: `./crawlith-reports/example.com/graph.json`
+
+### Markdown
+
+Human-readable report with:
+- Executive summary
+- Site health score breakdown
+- Top issues and recommendations
+- Page-level insights
+- Metric tables
+
+```bash
+crawlith export https://example.com --export markdown
+```
+
+Output: `./crawlith-reports/example.com/report.md`
+
+### CSV
+
+Spreadsheet-compatible files:
+- `pages.csv` - All pages with metrics
+- `links.csv` - Link graph edges
+- `issues.csv` - Detected issues
+- `clusters.csv` - Content clusters
+
+```bash
+crawlith export https://example.com --export csv
+```
+
+Output: `./crawlith-reports/example.com/*.csv`
+
+### HTML
+
+Standalone HTML report:
+- Interactive tables
+- Visual charts
+- Embedded styling
+- No external dependencies
+
+```bash
+crawlith export https://example.com --export html
+```
+
+Output: `./crawlith-reports/example.com/report.html`
+
+### Visualize
+
+Graph visualization files:
+- Graphviz DOT format
+- D3.js compatible JSON
+- Force-directed graph data
+
+```bash
+crawlith export https://example.com --export visualize
+```
+
+Output: `./crawlith-reports/example.com/graph.dot`, `graph-viz.json`
+
+## Examples
+
+### Export All Formats
+
+```bash
+crawlith export https://example.com --export json,markdown,csv,html,visualize
+```
+
+### Export to Custom Directory
+
+```bash
+crawlith export https://example.com \
+  --output /var/reports/seo \
+  --export json,html
+```
+
+Files will be saved to: `/var/reports/seo/example.com/`
+
+### JSON Only for API Integration
+
+```bash
+crawlith export https://example.com --export json
+```
+
+### Markdown Report for Stakeholders
+
+```bash
+crawlith export https://example.com --export markdown
+cat ./crawlith-reports/example.com/report.md
+```
+
+### CSV for Data Analysis
+
+```bash
+crawlith export https://example.com --export csv
+# Open in Excel/Google Sheets
+open ./crawlith-reports/example.com/pages.csv
+```
+
+### Automated Export Script
+
+```bash
+#!/bin/bash
+for site in example.com blog.example.com shop.example.com; do
+  crawlith export "https://$site" --export json,markdown
+done
+```
+
+### CI/CD Integration
+
+```bash
+# Export after crawl in CI pipeline
+crawlith crawl https://staging.example.com --limit 1000
+crawlith export https://staging.example.com --export json,html
+
+# Upload to S3 or artifact storage
+aws s3 cp ./crawlith-reports/staging.example.com/ s3://reports-bucket/ --recursive
+```
+
+## Output Structure
+
+Exports are organized by domain:
+
+```
+crawlith-reports/
+└── example.com/
+    ├── graph.json           # Full graph data
+    ├── report.md            # Markdown report
+    ├── report.html          # HTML report
+    ├── pages.csv            # Pages data
+    ├── links.csv            # Link edges
+    ├── issues.csv           # Issues list
+    ├── clusters.csv         # Content clusters
+    ├── graph.dot            # Graphviz format
+    └── graph-viz.json       # D3 visualization
+```
+
+## JSON Export Schema
+
+The JSON export includes:
+
+```json
+{
+  "metadata": {
+    "url": "https://example.com",
+    "crawledAt": "2024-03-01T12:00:00Z",
+    "snapshotId": 123,
+    "version": "1.0.0"
+  },
+  "metrics": {
+    "healthScore": 85.5,
+    "totalPages": 250,
+    "avgDepth": 2.3,
+    "orphanCount": 5,
+    ...
+  },
+  "nodes": [
+    {
+      "url": "https://example.com/page",
+      "title": "Page Title",
+      "status": 200,
+      "depth": 1,
+      "pagerank": 0.0234,
+      ...
+    }
+  ],
+  "edges": [
+    {
+      "source": "https://example.com",
+      "target": "https://example.com/page",
+      "anchorText": "Click here"
+    }
+  ],
+  "issues": { ... },
+  "clusters": [ ... ]
+}
+```
+
+## Error Handling
+
+### Site Not Found
+
+```
+❌ Site not found in database: example.com
+```
+
+**Solution**: Crawl the site first:
+
+```bash
+crawlith crawl https://example.com
+crawlith export https://example.com
+```
+
+### No Snapshots Found
+
+```
+❌ No completed snapshots found for site: example.com
+```
+
+**Solution**: Ensure a crawl has completed successfully:
+
+```bash
+crawlith sites  # Check site status
+crawlith crawl https://example.com
+```
+
+### Invalid Format
+
+```
+No export formats specified. Use --export json,html,etc.
+```
+
+**Solution**: Specify at least one export format:
+
+```bash
+crawlith export https://example.com --export json
+```
+
+## Use Cases
+
+### Regular Reporting
+
+Generate weekly reports:
+
+```bash
+crawlith crawl https://example.com --incremental
+crawlith export https://example.com --export markdown,html
+```
+
+### Data Analysis
+
+Export to CSV for analysis in Excel/Python:
+
+```bash
+crawlith export https://example.com --export csv
+python analyze_pages.py crawlith-reports/example.com/pages.csv
+```
+
+### Archival
+
+Archive crawl data for historical comparison:
+
+```bash
+crawlith export https://example.com --export json
+mv crawlith-reports/example.com/graph.json archive/$(date +%Y-%m-%d).json
+```
+
+### API Integration
+
+Use JSON export in custom applications:
+
+```javascript
+const data = require('./crawlith-reports/example.com/graph.json');
+console.log(`Health Score: ${data.metrics.healthScore}`);
+```
+
+<Note>
+The export command always uses the **latest completed snapshot**. To export a specific snapshot, use the UI dashboard or query the database directly.
+</Note>
+
+<Tip>
+Combine multiple formats in a single export for different audiences:
+- JSON for developers
+- HTML for stakeholders
+- CSV for analysts
+</Tip>
+
+<Warning>
+Exported files may contain sensitive information like internal URL structures. Secure export directories appropriately.
+</Warning>
+
+## Related Commands
+
+- [`crawl`](/commands/crawl) - Crawl a site to generate data
+- [`ui`](/commands/ui) - View exports in interactive dashboard
+- [`sites`](/commands/sites) - List all available sites for export
