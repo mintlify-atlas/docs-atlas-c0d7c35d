@@ -36,8 +36,7 @@
             "pages": [
               "commands/crawl",
               "commands/ui",
-              "commands/audit",
-              "commands/export",
+              "commands/probe",
               "commands/page",
               "commands/sites",
               "commands/clean"
