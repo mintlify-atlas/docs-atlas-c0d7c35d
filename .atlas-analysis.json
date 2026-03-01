@@ -1,0 +1,107 @@
+{
+  "projectType": "cli-tool",
+  "projectName": "Crawlith",
+  "projectDescription": "High-performance Node.js CLI tool for crawling websites, auditing infrastructure, and generating internal link graphs.",
+  "theme": "aspen",
+  "primaryColor": "#0EA5E9",
+  "lightColor": "#38BDF8",
+  "darkColor": "#0284C7",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": [
+              "introduction",
+              "installation",
+              "quickstart"
+            ]
+          },
+          {
+            "group": "Core Commands",
+            "pages": [
+              "commands/crawl",
+              "commands/ui",
+              "commands/audit",
+              "commands/export",
+              "commands/page",
+              "commands/sites",
+              "commands/clean"
+            ]
+          },
+          {
+            "group": "Features",
+            "pages": [
+              "features/crawling",
+              "features/incremental-crawls",
+              "features/graph-analysis",
+              "features/seo-analysis",
+              "features/infrastructure-audit",
+              "features/exports"
+            ]
+          },
+          {
+            "group": "Guides",
+            "pages": [
+              "guides/configuration",
+              "guides/rate-limiting",
+              "guides/security",
+              "guides/troubleshooting"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "groups": [
+          {
+            "group": "Core Library",
+            "pages": [
+              "api/overview",
+              "api/crawler",
+              "api/graph",
+              "api/metrics",
+              "api/audit"
+            ]
+          },
+          {
+            "group": "Database",
+            "pages": [
+              "api/database/overview",
+              "api/database/repositories"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "BFS website crawling with robots.txt compliance",
+    "Interactive D3.js visualization dashboard",
+    "Infrastructure auditing (TLS, DNS, Security headers)",
+    "SQLite persistent storage with snapshot history",
+    "Advanced graph analysis (PageRank, orphan detection, duplicate detection)",
+    "Incremental crawl mode with ETag/Last-Modified caching",
+    "Comprehensive SEO analysis and content detection",
+    "Multiple export formats (JSON, CSV, Markdown, HTML)"
+  ],
+  "publicApiSurface": [
+    "crawl(url, options)",
+    "crawlith crawl <url>",
+    "crawlith ui",
+    "crawlith audit <url>",
+    "crawlith export <url>",
+    "crawlith page <url>",
+    "crawlith sites",
+    "crawlith clean",
+    "calculateMetrics(graph, depth)",
+    "loadGraphFromSnapshot(snapshotId)",
+    "auditUrl(url, options)",
+    "Graph class",
+    "SiteRepository",
+    "SnapshotRepository",
+    "PageRepository"
+  ]
+}
